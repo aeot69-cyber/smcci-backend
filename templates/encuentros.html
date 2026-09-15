@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3 mb-3"><h4>🔥 Encuentros <small class="text-muted">Consultar / Modificar</small></h4>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
+<li><b>Etapa:</b> ENCUENTRO TREMENDO → FRUTO FIEL → REENCUENTRO → ESCUELA CRECIMIENTO → ESCUELA LIDERES (orden del proceso).</li>
+<li><b>Estado:</b> APROBADO = completó · PENDIENTE = falta · NO ASISTE/REPROBADO.</li>
+<li><b>Ruta espiritual:</b> 1 = aprobado, 0 = pendiente por cada etapa.</li>
+<li><b>Registrar de nuevo</b> la misma etapa actualiza su estado (no duplica).</li></ul></details>
+<form class="row g-2 mb-2" method="get"><div class="col"><input class="form-control" name="q" value="{{texto}}" placeholder="Buscar hermano..." title="Filtra por nombre"></div>
+<div class="col-md-3"><select class="form-select" name="fest" onchange="this.form.submit()" title="Filtra por estado"><option value="">Todos los estados</option>
+<option {% if fest=='APROBADO' %}selected{% endif %}>APROBADO</option><option {% if fest=='PENDIENTE' %}selected{% endif %}>PENDIENTE</option><option {% if fest=='REPROBADO' %}selected{% endif %}>REPROBADO</option><option {% if fest=='NO ASISTE' %}selected{% endif %}>NO ASISTE</option></select></div>
+<div class="col-auto"><button class="btn btn-primary">🔍 Consultar</button> <a class="btn btn-success" href="/encuentros/nuevo">➕ Ingresar</a> <a class="btn btn-outline-success" href="/encuentros?export=excel&q={{texto}}&fest={{fest}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/encuentros?export=pdf&q={{texto}}&fest={{fest}}" target="_blank">PDF</a></div></form>
+<table class="table table-striped"><tr><th>Hermano</th><th>Etapa</th><th>Estado</th><th>Fecha</th></tr>
+{% for e in rows %}<tr><td>{{e.nombre_completo}}</td><td>{{e.etapa}}</td><td>{{e.estado}}</td><td>{{e.fecha_evento}}</td></tr>{% endfor %}</table></div>
+<div class="card p-3"><h5>Ruta espiritual (1=aprobado)</h5><table class="table"><tr><th>Hermano</th><th>Tremendo</th><th>Fruto</th><th>Reenc.</th><th>Crecim.</th><th>Líderes</th></tr>
+{% for x in ruta %}<tr><td>{{x.nombre_completo}}</td><td>{{x.encuentro_tremendo}}</td><td>{{x.fruto_fiel}}</td><td>{{x.reencuentro}}</td><td>{{x.escuela_crecimiento}}</td><td>{{x.escuela_lideres}}</td></tr>{% endfor %}</table></div>{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3"><h4>🙋 Hermanos <small class="text-muted">Consultar / Modificar</small></h4>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
+<li><b>Buscar:</b> filtra por nombre o RUT. <b>Consultar</b> ejecuta el filtro.</li>
+<li><b>RUT:</b> identificador chileno único (12345678-9). No se repite ni se edita.</li>
+<li><b>Comuna/Región:</b> vienen de tablas maestras relacionadas.</li>
+<li><b>✏️ Modificar:</b> edita datos, comuna y quién lo invitó.</li>
+<li><b>Excel/PDF:</b> exporta lo que ves filtrado.</li></ul></details>
+<form class="row g-2 mb-2" method="get"><div class="col"><input class="form-control" name="q" value="{{texto}}" placeholder="Buscar por nombre o RUT..." title="Escribe nombre o RUT y pulsa Consultar"></div>
+<div class="col-auto"><button class="btn btn-primary" title="Filtrar la lista">🔍 Consultar</button> <a class="btn btn-success" href="/hermanos/nuevo" title="Crear un hermano nuevo">➕ Ingresar</a> <a class="btn btn-outline-success" href="/hermanos?export=excel&q={{texto}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/hermanos?export=pdf&q={{texto}}" target="_blank">PDF</a></div></form>
+<table class="table table-striped"><tr><th title="Rol único tributario">RUT</th><th>Nombre</th><th>Comuna</th><th>Teléfono</th><th>Modificar</th></tr>
+{% for h in rows %}<tr><td>{{h.rut}}</td><td>{{h.nombre_completo}}</td><td>{{h.comuna}}</td><td>{{h.telefono}}</td>
+<td><a class="btn btn-sm btn-outline-primary" href="/hermanos/{{h.id}}/editar">✏️ Modificar</a></td></tr>{% endfor %}</table></div>{% endblock %}

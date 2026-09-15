@@ -1,0 +1,120 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-4" style="max-width:800px">
+<h4>{{'✏️ Editar' if c else '➕ Nuevo'}} Informe de Célula</h4>
+<form method="post">
+<div class="row g-3">
+
+<div class="col-md-6">
+<label class="form-label">Nombre del Líder *</label>
+<select class="form-select" name="lider_id" required>
+<option value="">Seleccionar líder...</option>
+{% for l in lideres %}<option value="{{l.id}}" {{'selected' if c and c.lider_id==l.id}}>{{l.nombre_completo}}</option>{% endfor %}
+</select></div>
+
+<div class="col-md-6">
+<label class="form-label">Líder / Pastor a cargo de su célula *</label>
+<select class="form-select" name="pastor_id" required>
+<option value="">Seleccionar...</option>
+{% for l in lideres %}<option value="{{l.id}}" {{'selected' if c and c.pastor_id==l.id}}>{{l.nombre_completo}}</option>{% endfor %}
+</select></div>
+
+<div class="col-md-6">
+<label class="form-label">Género de la Célula *</label>
+<select class="form-select" name="red" required>
+<option value="">Seleccionar...</option>
+<option value="ADOLESCENTES" {{'selected' if c and c.red=='ADOLESCENTES'}}>ADOLESCENTES (TEEN)</option>
+<option value="JOVENES" {{'selected' if c and c.red=='JOVENES'}}>JOVENES (YOUTH)</option>
+<option value="MUJERES" {{'selected' if c and c.red=='MUJERES'}}>MUJERES</option>
+<option value="HOMBRES" {{'selected' if c and c.red=='HOMBRES'}}>HOMBRES</option>
+</select></div>
+
+<div class="col-md-3">
+<label class="form-label">Día de Célula *</label>
+<input class="form-control" type="date" name="fecha" value="{{c.fecha if c else ''}}" required></div>
+
+<div class="col-md-3">
+<label class="form-label">Mes *</label>
+<select class="form-select" name="mes" required>
+<option value="">Seleccionar...</option>
+{% for m in ['JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'] %}
+<option value="{{m}}" {{'selected' if c and c.mes==m}}>{{m}}</option>
+{% endfor %}
+</select></div>
+
+<div class="col-md-6">
+<label class="form-label">Dirección de su célula</label>
+<input class="form-control" name="direccion" value="{{c.direccion if c else ''}}"></div>
+
+<div class="col-md-3">
+<label class="form-label">Comuna</label>
+<select class="form-select" name="comuna">
+<option value="">Seleccionar...</option>
+{% for co in comunas %}<option value="{{co.nombre}}" {{'selected' if c and c.comuna==co.nombre}}>{{co.nombre}}</option>{% endfor %}
+</select></div>
+
+<div class="col-md-3">
+<label class="form-label">Horario</label>
+<input class="form-control" name="horario" placeholder="Ej: 19:00" value="{{c.horario if c else ''}}"></div>
+
+<div class="col-12">
+<label class="form-label">¿Realizó su célula esta semana? *</label>
+<div class="d-flex gap-3">
+<div class="form-check">
+<input class="form-check-input" type="radio" name="realizo" id="si" value="on" {{'checked' if not c or c.realizo}} onchange="toggleJust()">
+<label class="form-check-label" for="si">SI, se realizó</label>
+</div>
+<div class="form-check">
+<input class="form-check-input" type="radio" name="realizo" id="no" value="" {{'checked' if c and not c.realizo}} onchange="toggleJust()">
+<label class="form-check-label" for="no">NO</label>
+</div></div></div>
+
+<div class="col-md-6">
+<label class="form-label">Modalidad *</label>
+<select class="form-select" name="modalidad" required>
+<option value="">Seleccionar...</option>
+<option value="PRESENCIAL" {{'selected' if c and c.modalidad=='PRESENCIAL'}}>PRESENCIAL</option>
+<option value="ONLINE" {{'selected' if c and c.modalidad=='ONLINE'}}>ONLINE</option>
+</select></div>
+
+<div class="col-12" id="div_just" style="display:{{'block' if c and not c.realizo else 'none'}}">
+<label class="form-label">Justificación de por qué NO realizó su célula esta semana</label>
+<textarea class="form-control" name="justificacion" rows="2" placeholder="Motivo por el cual no se realizó la célula...">{{c.justificacion if c else ''}}</textarea>
+</div>
+
+<div class="col-12">
+<label class="form-label">Nombre discípulos que asistieron *</label>
+<textarea class="form-control" name="asistieron" rows="3" placeholder="Nombres separados por coma..." required>{{c.discipulos_asistieron if c else ''}}</textarea>
+</div>
+
+<div class="col-12">
+<label class="form-label">Nombre y justificación de discípulos que no asistieron</label>
+<textarea class="form-control" name="no_asistieron" rows="3" placeholder="Nombre - Justificación...">{{c.discipulos_no_asistieron if c else ''}}</textarea>
+</div>
+
+<div class="col-md-6">
+<label class="form-label">Total Ofrenda Semanal *</label>
+<input class="form-control" type="number" step="0.01" name="ofrenda" value="{{c.ofrenda if c else '0'}}" required></div>
+
+<div class="col-md-6">
+<label class="form-label">Tipo de Ofrenda *</label>
+<select class="form-select" name="tipo_ofrenda" required>
+<option value="">Seleccionar...</option>
+<option value="EFECTIVO" {{'selected' if c and c.tipo_ofrenda=='EFECTIVO'}}>Efectivo</option>
+<option value="TRANSFERENCIA" {{'selected' if c and c.tipo_ofrenda=='TRANSFERENCIA'}}>Transferencia</option>
+<option value="AMBOS" {{'selected' if c and c.tipo_ofrenda=='AMBOS'}}>Ambos</option>
+<option value="NO SE HACE" {{'selected' if c and c.tipo_ofrenda=='NO SE HACE'}}>No se hace ofrenda</option>
+</select></div>
+
+</div>
+<div class="mt-3">
+<button class="btn btn-primary">💾 Guardar Informe</button>
+<a href="/celulas-informe" class="btn btn-secondary">Cancelar</a>
+</div>
+</form>
+</div>
+<script>
+function toggleJust(){
+    document.getElementById('div_just').style.display=document.getElementById('si').checked?'none':'block';
+}
+</script>
+{% endblock %}

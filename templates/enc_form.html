@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block b %}<h2>Registrar encuentro</h2>
+<form method="post">Hermano: <select name="hermano">{% for h in hermanos %}<option value="{{h.id}}">{{h.nombre_completo}}</option>{% endfor %}</select><br>
+Etapa: <select name="tipo">{% for t in tipos %}<option value="{{t.id}}">{{t.nombre}}</option>{% endfor %}</select><br>
+Estado: <select name="estado"><option>APROBADO</option><option>PENDIENTE</option><option>REPROBADO</option><option>NO ASISTE</option></select><br>
+Fecha: <input type="date" name="fecha"><br><button>Guardar</button></form>{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% block b %}
+<div class="row g-3">
+<div class="col-md-3"><div class="card p-3 text-center"><h6>Hermanos</h6><h2>{{d.hermanos}}</h2><a class="btn btn-primary btn-sm" href="/hermanos">Ver</a></div></div>
+<div class="col-md-3"><div class="card p-3 text-center"><h6>Líderes</h6><h2>{{d.lideres}}</h2><a class="btn btn-primary btn-sm" href="/lideres">Ver</a></div></div>
+<div class="col-md-3"><div class="card p-3 text-center"><h6>Discipulado vigente</h6><h2>{{d.disc}}</h2><a class="btn btn-primary btn-sm" href="/discipulado">Ver</a></div></div>
+<div class="col-md-3"><div class="card p-3 text-center"><h6>Pendientes encuentro</h6><h2>{{d.pend}}</h2><a class="btn btn-warning btn-sm" href="/encuentros">Revisar</a></div></div>
+</div>
+<div class="row g-3 mt-1">
+<div class="col-md-7"><div class="card p-3"><h5>🏆 Top líderes</h5><table class="table table-hover"><tr><th>Líder</th><th>Pastor</th><th>12</th><th>Activos</th></tr>
+{% for l in d.top %}<tr><td>{{l.lider}}</td><td>{% if l.es_pastor %}⭐ Pastor{% else %}—{% endif %}</td><td><span class="badge bg-secondary">{{l.tipo_12}}</span></td><td><b>{{l.discipulos_activos}}</b></td></tr>{% endfor %}</table></div></div>
+<div class="col-md-5"><div class="card p-3"><h5>🎂 Cumpleaños este mes</h5><table class="table"><tr><th>Nombre</th><th>Fecha</th></tr>
+{% for c in d.cumple %}<tr><td>{{c.nombre_completo}}</td><td>{{c.fecha_nacimiento}}</td></tr>{% else %}<tr><td colspan=2>Sin cumpleaños</td></tr>{% endfor %}</table></div></div>
+</div>{% endblock %}

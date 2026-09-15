@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% block b %}
+<h2>🔔 Seguimiento diario — hermanos + visitas</h2>
+<details class="alert alert-info"><summary><b>❓ Ayuda: módulos relacionados</b></summary><ul class="mb-0">
+<li><b>Hermanos sin célula</b> (de Hermanos/Discipulado) y <b>Visitas</b> (del culto, con motivo de oración) comparten esta bandeja: una sola lista <b>Total</b>.</li>
+<li><b>Registrar en visita</b> la pasa automáticamente a EN SEGUIMIENTO y queda en su historial.</li>
+<li><b>Responsable:</b> solo líderes (selector, no texto libre).</li></ul></details>
+<p><a class="btn btn-success btn-sm" href="/seguimiento?export=excel" target="_blank">Excel total</a> <a class="btn btn-danger btn-sm" href="/seguimiento?export=pdf" target="_blank">PDF total</a></p>
+<div class="card p-3 mb-3"><h5>📋 Total relacionado ({{total|length}}: hermanos + visitas)</h5>
+<table class="table table-striped"><tr><th>Tipo</th><th>Nombre</th><th>Teléfono</th><th>Invitó</th><th>Último seg.</th></tr>
+{% for x in total %}<tr><td><span class="badge {{'bg-primary' if x.tipo=='HERMANO' else 'bg-success'}}">{{x.tipo}}</span></td><td>{{x.nombre_completo}}</td><td>{{x.telefono}}</td><td>{{x.invitado_por or '—'}}</td><td>{{x.ultimo_seg or 'NUNCA'}}</td></tr>{% endfor %}</table></div>
+<div class="card p-3 mb-3"><h5>🧍 Hermanos sin célula ({{rows|length}})</h5>
+<table class="table table-striped"><tr><th>Nombre</th><th>Teléfono</th><th>Invitado por</th><th>Último</th><th>Registrar</th></tr>
+{% for x in rows %}<tr><td>{{x.nombre_completo}}</td><td>{{x.telefono}}</td>
+<td>{{x.invitado_por or x.invitado_por_texto or '—'}}</td><td>{{x.ultimo_seg or 'NUNCA'}}</td>
+<td><form method="post" action="/seguimiento/{{x.id}}/registrar" class="d-flex gap-1">
+<select name="tipo" class="form-select form-select-sm"><option>LLAMADA</option><option>WHATSAPP</option><option>VISITA</option><option>ORACION</option><option>INVITACION CELULA</option></select>
+<select name="responsable" class="form-select form-select-sm" required><option value="">Responsable...</option>{% for l in lideres %}<option>{{l.nombre_completo}}</option>{% endfor %}</select>
+<button class="btn btn-sm btn-primary">💾</button></form></td></tr>{% else %}<tr><td colspan=5>✅ Sin pendientes.</td></tr>{% endfor %}</table></div>
+<div class="card p-3 mb-3"><h5>👋 Visitas en seguimiento ({{visitas|length}}) — con motivo de oración</h5>
+<table class="table table-striped"><tr><th>Nombre</th><th>Motivo oración</th><th>Estado</th><th>Último</th><th>Registrar</th></tr>
+{% for v in visitas %}<tr><td>{{v.nombre_completo}}</td><td>{{v.motivo_oracion}}</td><td>{{v.estado}}</td><td>{{v.ultimo_seg or 'NUNCA'}}</td>
+<td><form method="post" action="/seguimiento/visita/{{v.id}}/registrar" class="d-flex gap-1">
+<select name="tipo" class="form-select form-select-sm"><option>LLAMADA</option><option>WHATSAPP</option><option>VISITA</option><option>ORACION</option></select>
+<select name="responsable" class="form-select form-select-sm" required><option value="">Responsable...</option>{% for l in lideres %}<option>{{l.nombre_completo}}</option>{% endfor %}</select>
+<button class="btn btn-sm btn-success">💾</button></form></td></tr>{% else %}<tr><td colspan=5>Sin visitas pendientes.</td></tr>{% endfor %}</table></div>
+<div class="card p-3 mb-3"><h5>👥 Líderes SIN CÉLULA ({{lideres_sin|length}})</h5>
+<table class="table"><tr><th>Nombre</th><th>Red</th></tr>{% for l in lideres_sin %}<tr><td>{{l.nombre_completo}}</td><td>{{l.red}}</td></tr>{% else %}<tr><td colspan=2>Ninguno</td></tr>{% endfor %}</table></div>
+<div class="card p-3"><h5>Historial (hermanos + visitas)</h5><table class="table"><tr><th>Fecha</th><th>Origen</th><th>Nombre</th><th>Tipo</th><th>Resp.</th></tr>
+{% for h in hist %}<tr><td>{{h.fecha}}</td><td>{{h.origen}}</td><td>{{h.nombre}}</td><td>{{h.tipo}}</td><td>{{h.responsable}}</td></tr>{% endfor %}</table></div>{% endblock %}

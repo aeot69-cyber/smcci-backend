@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block b %}<div class="card p-4 col-md-6"><h4>➕ Nuevo Líder</h4>
+<form method="post">Hermano:<select class="form-select" name="hermano">{% for h in libres %}<option value="{{h.id}}">{{h.nombre_completo}}</option>{% endfor %}</select><br>
+Red:<select class="form-select" name="red"><option>HOMBRES</option><option>MUJERES</option><option>JOVENES</option><option>MIXTO</option></select><br>
+<label class="mt-2"><input type="checkbox" name="es_pastor"> ⭐ ¿Es Pastor?</label><br>
+Tipo 12:<select class="form-select" name="tipo12"><option>NINGUNO</option><option>12 PASTORES</option><option>12 APOSTOL</option><option>12 JOVENES</option></select><br>
+Estado:<select class="form-select" name="estado"><option>CELULA ACTIVA</option><option>SIN CELULA</option><option>EN FORMACION</option></select><br>
+Info:<select class="form-select" name="info"><option>SI</option><option>EN CONSULTA</option><option>NO</option></select><br>
+Células:<input class="form-control" name="celulas" value="1"><br>Obs:<input class="form-control" name="obs"><br><button class="btn btn-success">Guardar</button></form></div>{% endblock %}

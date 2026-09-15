@@ -1,0 +1,51 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3 mb-3" style="max-width:500px">
+<h5>{{'Editar' if u else 'Nuevo'}} Usuario</h5>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
+<li><b>Usuario:</b> nombre único para ingresar al sistema. No se puede cambiar después de creado.</li>
+<li><b>Contraseña:</b> mínimo 8 caracteres, 1 mayúscula, 1 minúscula, 1 número y 1 signo (!@#$%^&*). Al crear nuevo usuario, será obligatorio cambiarla al primer ingreso.</li>
+<li><b>Rol:</b> define los permisos del usuario. ADMIN no puede crear SUPERADMIN.</li>
+<li><b>Vincular a líder:</b> relaciona este usuario con un líder del sistema para identificación.</li>
+<li><b>Activo:</b> si está desmarcado, el usuario no podrá ingresar al sistema.</li></ul></details>
+</div>
+<div class="card p-4" style="max-width:500px">
+<form method="post">
+<div class="mb-3">
+<label class="form-label">Nombre de usuario</label>
+<input class="form-control" name="username" value="{{u.username if u else ''}}" required {{'readonly' if u else ''}}>
+</div>
+<div class="mb-3">
+<label class="form-label">{{'Nueva contraseña (dejar vacío para no cambiar)' if u else 'Contraseña'}}</label>
+<div class="pw-toggle"><input class="form-control" type="password" name="password" id="pwd-user" {{'' if u else 'required'}} minlength="6"><i class="bi bi-eye toggle-icon" onclick="togglePwd('pwd-user',this)"></i></div>
+</div>
+<div class="mb-3">
+<label class="form-label">Rol</label>
+<select class="form-select" name="rol" required>
+{% for r in ['SUPERADMIN','ADMIN','CONSULTA'] %}
+{% if rol == 'SUPERADMIN' or r != 'SUPERADMIN' %}
+<option value="{{r}}" {{'selected' if u and u.rol==r else ''}}>{{r}}</option>
+{% endif %}
+{% endfor %}
+</select>
+<small class="text-muted">ADMIN no puede asignar rol SUPERADMIN</small>
+</div>
+<div class="mb-3">
+<label class="form-label">Vincular a líder (opcional)</label>
+<select class="form-select" name="lider_id">
+<option value="">Sin vincular</option>
+{% for l in lideres %}
+<option value="{{l.id}}" {{'selected' if u and u.lider_id==l.id else ''}}>{{l.nombre_completo}}</option>
+{% endfor %}
+</select>
+<small class="text-muted">Relacionar este usuario con un líder del sistema</small>
+</div>
+<div class="mb-3 form-check">
+<input class="form-check-input" type="checkbox" name="activo" id="activo" {{'checked' if not u or u.activo else ''}}>
+<label class="form-check-label" for="activo">Activo</label>
+</div>
+<button class="btn btn-primary">💾 Guardar</button>
+<a href="/usuarios" class="btn btn-secondary">Cancelar</a>
+</form>
+</div>
+<script>function togglePwd(id,icon){const inp=document.getElementById(id);if(inp.type==='password'){inp.type='text';icon.className='bi bi-eye-slash toggle-icon'}else{inp.type='password';icon.className='bi bi-eye toggle-icon'}}</script>
+{% endblock %}

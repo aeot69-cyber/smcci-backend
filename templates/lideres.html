@@ -1,0 +1,26 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3"><h4>🙋 Líderes <small class="text-muted">Consultar / Modificar</small></h4>
+<details class="alert alert-info"><summary><b>❓ Ayuda: ¿para qué sirve cada campo?</b> (clic para ver)</summary>
+<ul class="mb-0"><li><b>Líder:</b> hermano que dirige. Un líder ES un hermano (relación 1:1).</li>
+<li><b>Red:</b> HOMBRES / MUJERES / JOVENES / MIXTO. Viene de tu planilla columna RED.</li>
+<li><b>⭐ Pastor:</b> marca Sí si es pastor ordenado. Se usa en reportes Por Tipo 12.</li>
+<li><b>Tipo 12:</b> 12 PASTORES / 12 APOSTOL / 12 JOVENES / NINGUNO. Cobertura G12.</li>
+<li><b>Célula (editable):</b> CELULA ACTIVA = tiene célula funcionando · SIN CELULA = no tiene (entra a Seguimiento) · EN FORMACION = abriéndola.</li>
+<li><b>Info:</b> SI = información enviada · EN CONSULTA = pendiente (columna INFORMACION ENVIADA de tu planilla).</li>
+<li><b>Células:</b> cuántas células dirige (número).</li>
+<li><b>Activos:</b> discípulos vigentes activos (calculado solo, no se digita).</li>
+<li><b>💾 Modificar:</b> guarda Red + Tipo 12 + Pastor + Célula + Info + Células de esa fila.</li></ul></details>
+<form class="row g-2 mb-2" method="get"><div class="col"><select class="form-select" name="f12" onchange="this.form.submit()"><option value="">Todos los 12</option><option value="12 PASTORES" {% if f12=='12 PASTORES' %}selected{% endif %}>12 PASTORES</option><option value="12 APOSTOL" {% if f12=='12 APOSTOL' %}selected{% endif %}>12 APOSTOL</option><option value="12 JOVENES" {% if f12=='12 JOVENES' %}selected{% endif %}>12 JOVENES</option><option value="NINGUNO" {% if f12=='NINGUNO' %}selected{% endif %}>NINGUNO</option></select></div>
+<div class="col-auto"><a class="btn btn-success" href="/lideres/nuevo">➕ Ingresar</a> <a class="btn btn-outline-success" href="/lideres?export=excel&f12={{f12}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/lideres?export=pdf&f12={{f12}}" target="_blank">PDF</a></div></form>
+<div style="overflow-x:auto"><table class="table table-striped"><tr><th title="Nombre del líder">Líder</th><th title="Red: grupo que lidera">Red</th><th title="¿Es pastor?">⭐ Pastor</th><th title="Cobertura de los 12">Tipo 12</th><th title="¿Tiene célula activa? EDITABLE">Célula ✏️</th><th title="Información enviada">Info ✏️</th><th title="Cantidad de células">N° ✏️</th><th>Activos</th><th>Modificar</th></tr>
+{% for l in rows %}<tr><td>{{l.lider}}</td><td><span class="badge bg-primary">{{l.red}}</span></td>
+<td>{% if l.es_pastor %}⭐ Sí{% else %}No{% endif %}</td><td><span class="badge badge-12 text-white">{{l.tipo_12}}</span></td>
+<td>{{l.estado_celula}}</td><td>{{l.info_enviada}}</td><td>{{l.cantidad_celulas}}</td><td><b>{{l.discipulos_activos}}</b></td>
+<td><form method="post" action="/lideres/{{l.lider_id}}/estado" class="d-flex gap-1 flex-wrap">
+<select name="red" class="form-select form-select-sm" title="Red"><option>{{l.red}}</option><option>HOMBRES</option><option>MUJERES</option><option>JOVENES</option><option>MIXTO</option></select>
+<select name="tipo12" class="form-select form-select-sm" title="Tipo 12"><option>{{l.tipo_12}}</option><option>12 PASTORES</option><option>12 APOSTOL</option><option>12 JOVENES</option><option>NINGUNO</option></select>
+<select name="pastor" class="form-select form-select-sm" title="¿Es pastor?"><option value="on" {% if l.es_pastor %}selected{% endif %}>Pastor Sí</option><option value="" {% if not l.es_pastor %}selected{% endif %}>Pastor No</option></select>
+<select name="estado" class="form-select form-select-sm" title="¿Está en célula?"><option>{{l.estado_celula}}</option><option>CELULA ACTIVA</option><option>SIN CELULA</option><option>EN FORMACION</option></select>
+<select name="info" class="form-select form-select-sm" title="Información enviada"><option>{{l.info_enviada}}</option><option>SI</option><option>EN CONSULTA</option><option>NO</option></select>
+<input name="celulas" size=2 value="{{l.cantidad_celulas}}" class="form-control form-control-sm" title="N° células" style="width:50px">
+<button class="btn btn-sm btn-primary" title="Guardar cambios">💾</button></form></td></tr>{% endfor %}</table></div></div>{% endblock %}

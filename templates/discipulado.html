@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3"><h4>🤝 Discipulado <small class="text-muted">Consultar / Modificar</small></h4>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
+<li><b>Hermano:</b> discípulo asignado. <b>Líder:</b> quién lo pastorea.</li>
+<li><b>Tipo 12 líder:</b> cobertura del líder (filtra por 12 PASTORES/APOSTOL/JOVENES).</li>
+<li><b>Periodicidad:</b> SEMANAL / QUINCENAL / MENSUAL (cada cuánto se reúne la célula).</li>
+<li><b>Activo:</b> True = discípulo activo. <b>Estado:</b> VIGENTE o fecha de cierre.</li>
+<li><b>Cerrar:</b> termina la asignación guardando historial (no borra).</li></ul></details>
+<form class="row g-2 mb-2" method="get"><div class="col"><input class="form-control" name="q" value="{{texto}}" placeholder="Hermano o líder..." title="Filtra por nombre"></div>
+<div class="col-md-3"><select class="form-select" name="f12" onchange="this.form.submit()" title="Filtra por cobertura del líder"><option value="">Todos los 12</option>
+<option value="12 PASTORES" {% if f12=='12 PASTORES' %}selected{% endif %}>12 PASTORES</option>
+<option value="12 APOSTOL" {% if f12=='12 APOSTOL' %}selected{% endif %}>12 APOSTOL</option>
+<option value="12 JOVENES" {% if f12=='12 JOVENES' %}selected{% endif %}>12 JOVENES</option>
+<option value="NINGUNO" {% if f12=='NINGUNO' %}selected{% endif %}>NINGUNO</option></select></div>
+<div class="col-auto"><button class="btn btn-primary">🔍 Consultar</button> <a class="btn btn-success" href="/discipulado/nuevo">➕ Ingresar</a> <a class="btn btn-outline-success" href="/discipulado?export=excel&q={{texto}}&f12={{f12}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/discipulado?export=pdf&q={{texto}}&f12={{f12}}" target="_blank">PDF</a></div></form>
+<table class="table table-striped"><tr><th>Hermano</th><th>Líder</th><th>Tipo 12 líder</th><th>Periodicidad</th><th>Activo</th><th>Estado</th><th>Modificar</th></tr>
+{% for d in rows %}<tr><td>{{d.hermano}}</td><td>{{d.lider}}</td><td><span class="badge badge-12 text-white">{{d.tipo_12}}</span></td><td>{{d.periodicidad}}</td><td>{{d.es_discipulo_activo}}</td><td>{{d.fecha_fin or 'VIGENTE'}}</td>
+<td>{% if not d.fecha_fin %}<form method="post" action="/discipulado/{{d.id}}/cerrar"><button class="btn btn-sm btn-outline-secondary" title="Cierra la asignación conservando historial">Cerrar</button></form>{% endif %}</td></tr>{% endfor %}</table></div>{% endblock %}

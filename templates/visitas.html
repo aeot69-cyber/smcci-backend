@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3"><h4>👋 Visitas <small class="text-muted">Consultar / Modificar — solo van al culto</small></h4>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
+<li><b>Visita:</b> persona invitada que solo vino al culto. No es hermano aún.</li>
+<li><b>RUT:</b> se pide al integrar (obligatorio para crear al hermano, único).</li>
+<li><b>Motivo de oración:</b> por qué pedir. Obligatorio.</li>
+<li><b>Responsable:</b> solo líderes del desplegable, no texto libre.</li>
+<li><b>Integrar:</b> indica RUT + líder destino → crea al HERMANO y lo asigna a su CÉLULA (Discipulado), la visita pasa a INTEGRADO.</li></ul></details>
+<form class="row g-2 mb-2" method="get"><div class="col"><input class="form-control" name="q" value="{{texto}}" placeholder="Buscar por nombre..."></div>
+<div class="col-md-3"><select class="form-select" name="fest" onchange="this.form.submit()"><option value="">Todos los estados</option>
+<option {% if fest=='PENDIENTE' %}selected{% endif %}>PENDIENTE</option><option {% if fest=='EN SEGUIMIENTO' %}selected{% endif %}>EN SEGUIMIENTO</option><option {% if fest=='INTEGRADO' %}selected{% endif %}>INTEGRADO</option><option {% if fest=='NO VOLVIO' %}selected{% endif %}>NO VOLVIO</option></select></div>
+<div class="col-auto"><button class="btn btn-primary">🔍 Consultar</button> <a class="btn btn-success" href="/visitas/nuevo">➕ Ingresar</a> <a class="btn btn-outline-success" href="/visitas?export=excel&q={{texto}}&fest={{fest}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/visitas?export=pdf&q={{texto}}&fest={{fest}}" target="_blank">PDF</a></div></form>
+<div style="overflow-x:auto"><table class="table table-striped"><tr><th>Nombre</th><th>RUT</th><th>Teléfono</th><th>Motivo oración</th><th>Estado</th><th>Responsable ✏️</th><th>Integrar a célula</th></tr>
+{% for v in rows %}<tr><td>{{v.nombre_completo}}</td><td>{{v.rut or '—'}}</td><td>{{v.telefono}}</td><td>{{v.motivo_oracion}}</td><td><span class="badge bg-warning text-dark">{{v.estado}}</span></td>
+<td><form method="post" action="/visitas/{{v.id}}/estado" class="d-flex gap-1">
+<input type="hidden" name="estado" value="{{v.estado}}"><input type="hidden" name="obs" value="">
+<select name="responsable" class="form-select form-select-sm" title="Elige líder responsable"><option value="">{{v.responsable or 'Elegir...'}}</option>{% for l in lideres %}<option>{{l.nombre_completo}}</option>{% endfor %}</select>
+<button class="btn btn-sm btn-primary">💾</button></form></td>
+<td>{% if v.estado != 'INTEGRADO' %}<form method="post" action="/visitas/{{v.id}}/integrar" class="d-flex gap-1">
+<input name="rut" class="form-control form-control-sm" placeholder="RUT 12345678-9" required style="width:130px" title="RUT para crear al hermano">
+<select name="lider" class="form-select form-select-sm" required title="Célula destino">{% for l in lideres %}<option value="{{l.id}}">{{l.nombre_completo}}</option>{% endfor %}</select>
+<button class="btn btn-sm btn-success" title="Crea hermano + asigna célula">➡️ Integrar</button></form>{% else %}✅ Integrado{% endif %}</td></tr>{% else %}<tr><td colspan=7>Sin visitas.</td></tr>{% endfor %}</table></div></div>{% endblock %}

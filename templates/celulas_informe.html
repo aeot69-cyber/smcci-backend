@@ -1,0 +1,28 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3"><h4>📋 Informe Semanal de Célula</h4>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
+<li><b>Líder:</b> seleccionar de la lista (viene de la BD).</li>
+<li><b>Pastor a cargo:</b> también de la BD (puede ser un macro de otra célula).</li>
+<li><b>Realizó:</b> marcar SI si se realizó la célula esta semana.</li></ul></details>
+<form class="row g-2 mb-3" method="get">
+<div class="col"><input class="form-control" name="q" placeholder="Buscar líder..."></div>
+<div class="col-auto"><button class="btn btn-primary">🔍 Consultar</button>
+<a class="btn btn-success" href="/celulas-informe/nuevo">➕ Nuevo Informe</a>
+<a class="btn btn-outline-success" href="/celulas-informe?export=excel" target="_blank">Excel</a>
+<a class="btn btn-outline-danger" href="/celulas-informe?export=pdf" target="_blank">PDF</a></div>
+</form>
+<table class="table table-striped table-sm">
+<tr><th>#</th><th>Líder</th><th>Pastor</th><th>Fecha</th><th>Mes</th><th>Red</th><th>Realizó</th><th>Ofrenda</th><th>Acciones</th></tr>
+{% for c in rows %}<tr>
+<td>{{c.id}}</td>
+<td>{{c.lider_nombre or '—'}}</td>
+<td>{{c.pastor_nombre or '—'}}</td>
+<td>{{c.fecha}}</td><td>{{c.mes}}</td>
+<td><span class="badge bg-primary">{{c.red}}</span></td>
+<td>{% if c.realizo %}<span class="badge bg-success">SI</span>{% else %}<span class="badge bg-danger">NO</span>{% endif %}</td>
+<td>${{c.ofrenda or 0}}</td>
+<td><a class="btn btn-sm btn-outline-primary" href="/celulas-informe/{{c.id}}/editar">✏️</a>
+<form method="post" action="/celulas-informe/{{c.id}}/eliminar" class="d-inline" onsubmit="return confirm('¿Eliminar?')">
+<button class="btn btn-sm btn-outline-danger">🗑️</button></form></td>
+</tr>{% else %}<tr><td colspan=9>Sin informes</td></tr>{% endfor %}
+</table></div>{% endblock %}

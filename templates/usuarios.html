@@ -1,0 +1,118 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3 mb-3">
+<h4>⚙️ Usuarios y Permisos <small class="text-muted">Gestión de accesos</small></h4>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
+<li><b>Crear usuario:</b> asigna usuario, contraseña y rol. La contraseña debe tener: 8+ caracteres, mayúscula, minúscula, número y signo. El nuevo usuario deberá cambiar su contraseña al primer ingreso.</li>
+<li><b>Rol SUPERADMIN:</b> acceso total a todo el sistema incluyendo gestión de usuarios.</li>
+<li><b>Rol ADMIN:</b> puede crear/editar usuarios pero NO asignar rol SUPERADMIN.</li>
+<li><b>Rol CONSULTA:</b> solo puede consultar y exportar. No modifica datos.</li>
+<li><b>Vincular a líder:</b> relaciona el usuario con un líder del sistema para identificación interna.</li>
+<li><b>Permisos:</b> marca las casillas para definir qué puede hacer cada rol en cada módulo del sistema.</li>
+<li><b>🔒 Bloquear:</b> desactiva el usuario sin eliminarlo. P/reactivar con 🔓.</li>
+<li><b>Recuperar contraseña:</b> desde el login se envía una clave temporal al correo del líder vinculado al usuario. Si no tiene líder o correo, contactar al administrador.</li></ul></details>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+<h5>Lista de Usuarios</h5>
+{% if tiene_permiso('usuarios','crear') %}
+<a href="/usuarios/nuevo" class="btn btn-primary btn-sm">➕ Nuevo Usuario</a>
+{% endif %}
+</div>
+
+<!-- Lista de usuarios -->
+<div class="card p-3 mb-4">
+<table class="table table-hover">
+<thead><tr><th>Usuario</th><th>Rol</th><th>Vinculado a</th><th>Último login</th><th>Estado</th><th>Acciones</th></tr></thead>
+<tbody>
+{% for u in usuarios %}
+<tr>
+<td><b>{{u.username}}</b></td>
+<td><span class="badge bg-{{'danger' if u.rol=='SUPERADMIN' else 'primary' if u.rol=='ADMIN' else 'secondary'}}">{{u.rol}}</span></td>
+<td>{{u.vinculo or '—'}}</td>
+<td>{{u.ultimo_login.strftime('%d/%m/%Y %H:%M') if u.ultimo_login else 'Nunca'}}</td>
+<td>{{'✅ Activo' if u.activo else '❌ Inactivo'}}</td>
+<td>
+{% if tiene_permiso('usuarios','editar') %}
+<a href="/usuarios/{{u.id}}/editar" class="btn btn-outline-primary btn-sm">✏️</a>
+<form method="post" action="/usuarios/{{u.id}}/toggle" style="display:inline">
+<button class="btn btn-outline-{{'warning' if u.activo else 'success'}} btn-sm">{{'🔒' if u.activo else '🔓'}}</button>
+</form>
+{% endif %}
+{% if tiene_permiso('usuarios','eliminar') and u.rol != 'SUPERADMIN' %}
+<form method="post" action="/usuarios/{{u.id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar este usuario?')">
+<button class="btn btn-outline-danger btn-sm">🗑️</button>
+</form>
+{% endif %}
+</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+<!-- Configuración de permisos por rol -->
+{% if tiene_permiso('usuarios','editar') %}
+<h5 class="mb-3">Configuración de Permisos por Rol <small class="text-muted">Define qué puede hacer cada rol</small></h5>
+<details class="alert alert-warning"><summary><b>❓ Ayuda de Permisos</b></summary><ul class="mb-0">
+<li><b>Ver (Leer):</b> puede acceder a la página del módulo y ver los datos.</li>
+<li><b>Crear:</b> puede agregar registros nuevos (ej: nuevo hermano, nuevo líder).</li>
+<li><b>Editar:</b> puede modificar registros existentes.</li>
+<li><b>Eliminar:</b> puede borrar registros permanentemente.</li>
+<li><b>Exportar:</b> puede descargar Excel y PDF del módulo.</li>
+<li>Los cambios se aplican inmediatamente al presionar "Guardar Permisos".</li>
+<li><b>SUPERADMIN</b> siempre tiene todos los permisos marcados.</li></ul></details>
+
+<form method="post" action="/usuarios/permisos">
+<div class="card p-3">
+<table class="table table-bordered table-sm">
+<thead class="table-dark">
+<tr>
+<th class="text-center" style="width:120px">Módulo</th>
+<th class="text-center" style="width:80px">Leer</th>
+<th class="text-center" style="width:80px">Crear</th>
+<th class="text-center" style="width:80px">Editar</th>
+<th class="text-center" style="width:80px">Eliminar</th>
+<th class="text-center" style="width:80px">Exportar</th>
+</tr>
+</thead>
+<tbody>
+{% for mod in modulos %}
+<tr>
+<td><b>{{mod.nombre}}</b></td>
+{% for rol in roles %}
+<td colspan="{{loop.last and 1 or 0}}" class="text-center">
+{% if not loop.last %}
+<input type="checkbox" name="chk_{{mod.key}}_{{rol}}" {{'checked' if perm[rol].get(mod.key,{}).get('puede_leer') else ''}}>
+{% endif %}
+</td>
+{% endfor %}
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+<!-- Matriz de permisos por rol -->
+{% for rol in roles %}
+<h6 class="mt-3">Rol: <span class="badge bg-{{'danger' if rol=='SUPERADMIN' else 'primary' if rol=='ADMIN' else 'secondary'}}">{{rol}}</span></h6>
+<div class="row">
+{% for mod in modulos %}
+<div class="col-md-3 mb-1">
+<small><b>{{mod.nombre}}</b></small><br>
+<label class="me-2"><input type="checkbox" name="{{rol}}_{{mod.key}}_leer" {{'checked' if perm[rol].get(mod.key,{}).get('puede_leer') else ''}}> Ver</label>
+<label class="me-2"><input type="checkbox" name="{{rol}}_{{mod.key}}_crear" {{'checked' if perm[rol].get(mod.key,{}).get('puede_crear') else ''}}> Crear</label>
+<label class="me-2"><input type="checkbox" name="{{rol}}_{{mod.key}}_editar" {{'checked' if perm[rol].get(mod.key,{}).get('puede_editar') else ''}}> Editar</label>
+<label class="me-2"><input type="checkbox" name="{{rol}}_{{mod.key}}_eliminar" {{'checked' if perm[rol].get(mod.key,{}).get('puede_eliminar') else ''}}> Eliminar</label>
+<label><input type="checkbox" name="{{rol}}_{{mod.key}}_exportar" {{'checked' if perm[rol].get(mod.key,{}).get('puede_exportar') else ''}}> Exportar</label>
+</div>
+{% endfor %}
+</div>
+<hr>
+{% endfor %}
+
+<div class="text-end mt-3">
+<button class="btn btn-success">💾 Guardar Permisos</button>
+</div>
+</div>
+</form>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% block b %}<div class="card p-4 col-md-8"><h4>➕ Nueva Visita (culto)</h4>
+<form method="post" class="row g-2">
+<div class="col-md-6">Nombre completo*<input class="form-control" name="nombre" required placeholder="Ej: Juan Pérez Soto"></div>
+<div class="col-md-6">RUT (para futura integración)<input class="form-control" name="rut" placeholder="12345678-9"></div>
+<div class="col-md-6">Dirección<input class="form-control" name="direccion" placeholder="Calle, número, comuna"></div>
+<div class="col-md-4">Teléfono<input class="form-control" name="telefono" placeholder="+569..."></div>
+<div class="col-md-4">Correo<input class="form-control" name="correo"></div>
+<div class="col-md-4">Comuna<select class="form-select" name="comuna"><option value="">--</option>{% for c in comunas %}<option value="{{c.id}}">{{c.nombre}}</option>{% endfor %}</select></div>
+<div class="col-md-6">Invitado por (hermano)<select class="form-select" name="invitado"><option value="">--</option>{% for h in hermanos %}<option value="{{h.id}}">{{h.nombre_completo}}</option>{% endfor %}</select></div>
+<div class="col-md-6">Invitado por (externo)<input class="form-control" name="invtexto" placeholder="Nombre externo"></div>
+<div class="col-md-4">Fecha visita<input class="form-control" type="date" name="fecha"></div>
+<div class="col-md-4">Estado<select class="form-select" name="estado"><option>PENDIENTE</option><option>EN SEGUIMIENTO</option><option>INTEGRADO</option><option>NO VOLVIO</option></select></div>
+<div class="col-md-4">Responsable (líder)<select class="form-select" name="responsable"><option value="">--</option>{% for l in lideres %}<option>{{l.nombre_completo}}</option>{% endfor %}</select></div>
+<div class="col-12">Motivo de oración*<textarea class="form-control" name="motivo" required placeholder="Ej: salud de su madre, trabajo..."></textarea></div>
+<div class="col-12">Observación<input class="form-control" name="obs"></div>
+<div class="col-12"><button class="btn btn-success">💾 Guardar visita</button> <a class="btn btn-secondary" href="/visitas">Volver</a></div></form></div>{% endblock %}
