@@ -792,7 +792,7 @@ def celulas_informe_update(cid):
     try:
         q("""UPDATE celulas_informe SET lider_id=NULLIF(%s,'')::int,pastor_id=NULLIF(%s,'')::int,
             fecha=NULLIF(%s,'')::date,mes=%s,red=%s,direccion=%s,comuna=%s,horario=%s,
-            realizo=%s,justificacion=%s,discipulos_asistieron=%s,discipulos_no_asistieron=%s,
+            realizado=%s,justificacion=%s,discipulos_asistieron=%s,discipulos_no_asistieron=%s,
             ofrenda=NULLIF(%s,'')::decimal,tipo_ofrenda=%s,modalidad=%s WHERE id=%s""",
           (f.get("lider_id"), f.get("pastor_id"), f.get("fecha"), f.get("mes"), f.get("red"),
            f.get("direccion"), f.get("comuna"), f.get("horario"),
