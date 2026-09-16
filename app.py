@@ -265,6 +265,7 @@ MODULOS_INFO = [
     {"key":"discipulado","nombre":"Discipulado"},{"key":"encuentros","nombre":"Encuentros"},
     {"key":"seguimiento","nombre":"Seguimiento"},{"key":"visitas","nombre":"Visitas"},
     {"key":"reportes","nombre":"Reportes"},{"key":"usuarios","nombre":"Usuarios"},
+    {"key":"celulas","nombre":"Informe Célula"},
 ]
 ROLES_LIST = ["SUPERADMIN","ADMIN","CONSULTA"]
 
