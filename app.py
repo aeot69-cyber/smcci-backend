@@ -145,6 +145,8 @@ def _permisos_usuario(usuario_id):
     return g._uperm_cache[usuario_id]
 
 def tiene_permiso(rol, modulo, accion="leer", usuario_id=None):
+    if rol == "SUPERADMIN":
+        return True
     if usuario_id:
         up = _permisos_usuario(usuario_id).get(modulo)
         if up:
@@ -197,11 +199,12 @@ def inject_permisos():
         ("celulas",     "Informe Célula", "📋", "celulas",   "/celulas-informe", "/celulas-informe/nuevo"),
         ("reportes",    "Reportes",    "📈", "reportes",    "/reportes",    None),
         ("configuracion","Configuración","⚙️","configuracion","/configuracion",None),
+        ("auditoria",   "Auditoría",   "📜", "auditoria",   "/auditoria",   None),
     ]
     menu = "<a href='/'>🏠 INICIO</a>"
     for mod, nombre, icono, key, url_list, url_nuevo in modulos_menu:
         pk = p.get(key, {})
-        if not pk.get("puede_leer"): continue
+        if rol != "SUPERADMIN" and not pk.get("puede_leer"): continue
         menu += f"<button class='mbtn' data-bs-toggle='collapse' data-bs-target='#m-{key}'>{icono} {nombre} ▾</button>"
         menu += f"<div id='m-{key}' class='collapse sub'>"
         menu += f"<a href='{url_list}'>🔍 Consultar</a>"
@@ -212,6 +215,18 @@ def inject_permisos():
             menu += f"<a href='{url_list}?export=pdf' target='_blank'>📄 PDF</a>"
         menu += "</div>"
     return dict(perm=p, rol=rol, menu=menu, tiene_permiso=lambda m, a="leer": tiene_permiso(rol, m, a, session.get("uid")))
+
+def log_audit(accion, modulo, detalle=""):
+    """Registra auditoría sin bloquear si falla."""
+    try:
+        uid = session.get("uid")
+        user = session.get("user", "")
+        rol = session.get("rol", "")
+        ip = request.remote_addr or ""
+        q("INSERT INTO auditoria(usuario_id, username, rol, accion, modulo, detalle, ip) VALUES(%s,%s,%s,%s,%s,%s,%s)",
+          (uid, user, rol, accion, modulo, detalle[:500] if detalle else "", ip), commit=True)
+    except Exception as e:
+        print(f"audit log failed: {e}")
 
 def to_excel(rows, headers, filename):
     wb = Workbook(); ws = wb.active; ws.title = "Reporte"
@@ -245,13 +260,17 @@ def login_post():
         flash("Usuario o clave inválidos", "error"); return redirect(url_for("login"))
     session["uid"], session["rol"], session["user"] = row["id"], row["rol"], u
     q("UPDATE usuarios SET ultimo_login=now() WHERE id=%s", (row["id"],), commit=True)
+    log_audit("LOGIN", "usuarios", f"login {u}")
     if row.get("primer_login"):
         flash("Es su primer ingreso. Debe cambiar su contraseña.", "ok")
         return redirect(url_for("cambiar_clave"))
     return redirect(url_for("index"))
 
 @app.get("/logout")
-def logout(): session.clear(); return redirect(url_for("login"))
+def logout():
+    try: log_audit("LOGOUT", "usuarios", f"logout {session.get('user','')}")
+    except: pass
+    session.clear(); return redirect(url_for("login"))
 
 # ---------- CAMBIO DE CONTRASEÑA ----------
 @app.get("/cambiar-clave")
@@ -338,6 +357,7 @@ MODULOS_INFO = [
     {"key":"seguimiento","nombre":"Seguimiento"},{"key":"visitas","nombre":"Visitas"},
     {"key":"reportes","nombre":"Reportes"},{"key":"usuarios","nombre":"Usuarios"},
     {"key":"celulas","nombre":"Informe Célula"},{"key":"configuracion","nombre":"Configuración"},
+    {"key":"auditoria","nombre":"Auditoría"},
 ]
 ROLES_LIST = ["SUPERADMIN","ADMIN","CONSULTA"]
 
@@ -393,6 +413,7 @@ def usuario_crear():
     try:
         q("INSERT INTO usuarios(username,password_hash,rol,activo,primer_login,lider_id) VALUES(%s,%s,%s,%s,TRUE,%s)",
           (username, generate_password_hash(pwd), f["rol"], f.get("activo")=="on", lider_id), commit=True)
+        log_audit("CREAR","usuarios", f"{username} rol={f.get('rol')}")
         flash("Usuario creado", "ok")
     except Exception as e: flash(f"Error: {e}", "error"); return redirect(url_for("usuario_nuevo"))
     return redirect(url_for("usuarios"))
@@ -432,6 +453,7 @@ def usuario_update(uid):
         else:
             q("UPDATE usuarios SET rol=%s, activo=%s, lider_id=%s WHERE id=%s",
               (f["rol"], f.get("activo")=="on", lider_id, uid), commit=True)
+        log_audit("EDITAR","usuarios", f"id={uid}")
         flash("Usuario actualizado", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("usuarios"))
@@ -452,6 +474,7 @@ def usuario_eliminar(uid):
         flash("No se puede eliminar un SUPERADMIN", "error")
     else:
         q("DELETE FROM usuarios WHERE id=%s", (uid,), commit=True)
+        log_audit("ELIMINAR","usuarios", f"id={uid}")
         flash("Usuario eliminado", "ok")
     return redirect(url_for("usuarios"))
 
@@ -472,6 +495,7 @@ def usuario_reset_clave(uid):
         return redirect(url_for("usuarios"))
     from werkzeug.security import generate_password_hash
     q("UPDATE usuarios SET password_hash=%s, primer_login=TRUE WHERE id=%s", (generate_password_hash(nueva), uid), commit=True)
+    log_audit("RESET_CLAVE","usuarios", f"id={uid}")
     flash(f"Contraseña de usuario {uid} actualizada — deberá cambiarla al ingresar", "ok")
     return redirect(url_for("usuarios"))
 
@@ -544,6 +568,7 @@ def hermano_crear():
            f.get("fnac") or None, f.get("fani") or None, f.get("correo") or None,
            f.get("telefono"), f.get("direccion"), f.get("comuna") or None, f.get("sexo") or None,
            f.get("ecivil") or None, f.get("invitado") or None, f.get("invtexto") or None), commit=True)
+        log_audit("CREAR","hermanos", f"rut={rut} {f.get('nombres','')}")
         flash("Hermano creado", "ok")
     except Exception as e: flash(f"Error: {e}", "error"); return redirect(url_for("hermano_nuevo"))
     return redirect(url_for("hermanos"))
@@ -606,6 +631,7 @@ def hermano_update(hid):
         # Actualizar campos que pueden ser NULL por separado
         q("UPDATE hermanos SET apellido_materno=%s, correo=%s, comuna_id=%s, sexo=%s, estado_civil=%s, invitado_por_id=%s, invitado_por_texto=%s WHERE id=%s",
           (materno_val, correo_val, comuna_val, sexo_val, ecivil_val, invitado_val, f.get("invtexto") or None, hid), commit=True)
+        log_audit("EDITAR","hermanos", f"id={hid}")
         flash("Actualizado", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("hermanos"))
@@ -622,6 +648,7 @@ def hermano_toggle(hid):
 @permiso_req("hermanos", "eliminar")
 def hermano_eliminar(hid):
     q("DELETE FROM hermanos WHERE id=%s", (hid,), commit=True)
+    log_audit("ELIMINAR","hermanos", f"id={hid}")
     flash("Hermano eliminado", "ok")
     return redirect(url_for("hermanos"))
 
@@ -686,6 +713,7 @@ def lider_crear():
         q("INSERT INTO lideres(hermano_id,red,estado_celula,info_enviada,cantidad_celulas,observacion,es_pastor,rol_lider,tipo_12,lider_padre_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
           (f["hermano"], f["red"], f["estado"], f["info"], int(f.get("celulas") or 1), f.get("obs"),
            rol == "PASTOR", rol, f.get("tipo12", "NINGUNO"), f.get("padre") or None), commit=True)
+        log_audit("CREAR","lideres", f"hermano={f.get('hermano')} rol={rol}")
         flash("Líder creado", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("lideres"))
@@ -726,6 +754,7 @@ def lider_estado(lid):
             "es_pastor": rol == "PASTOR",
             "tipo_12": f.get("tipo12") or act["tipo_12"],
         })
+    log_audit("EDITAR","lideres", f"id={lid} rol={rol}")
     flash("Líder actualizado", "ok"); return redirect(url_for("lideres"))
 
 @app.post("/lideres/<int:lid>/eliminar")
@@ -733,6 +762,7 @@ def lider_estado(lid):
 @permiso_req("lideres", "eliminar")
 def lider_eliminar(lid):
     q("DELETE FROM lideres WHERE id=%s", (lid,), commit=True)
+    log_audit("ELIMINAR","lideres", f"id={lid}")
     flash("Líder eliminado", "ok")
     return redirect(url_for("lideres"))
 
@@ -775,6 +805,7 @@ def disc_crear():
         q("UPDATE discipulado SET fecha_fin=CURRENT_DATE WHERE hermano_id=%s AND fecha_fin IS NULL", (f["hermano"],), commit=True)
         q("INSERT INTO discipulado(hermano_id,lider_id,es_discipulo_activo,periodicidad_id,observacion) VALUES(%s,%s,%s,%s,%s)",
           (f["hermano"], f["lider"], f.get("activo") == "on", f.get("per") or None, f.get("obs")), commit=True)
+        log_audit("CREAR","discipulado", f"h={f.get('hermano')} l={f.get('lider')}")
         flash("Asignación creada", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("discipulado"))
@@ -812,6 +843,7 @@ def disc_editar_guardar(did):
             "periodicidad_id": f.get("per") or act["periodicidad_id"],
             "observacion": f.get("obs") if f.get("obs") is not None else act["observacion"],
         })
+        log_audit("EDITAR","discipulado", f"id={did}")
         flash("Asignación modificada", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("discipulado"))
@@ -821,6 +853,7 @@ def disc_editar_guardar(did):
 @permiso_req("discipulado", "eliminar")
 def disc_eliminar(did):
     q("DELETE FROM discipulado WHERE id=%s", (did,), commit=True)
+    log_audit("ELIMINAR","discipulado", f"id={did}")
     flash("Asignación eliminada", "ok")
     return redirect(url_for("discipulado"))
 
@@ -858,6 +891,7 @@ def enc_crear():
         q("""INSERT INTO encuentro_participacion(hermano_id,tipo_encuentro_id,estado,fecha_evento) VALUES(%s,%s,%s,%s)
              ON CONFLICT (hermano_id,tipo_encuentro_id) DO UPDATE SET estado=EXCLUDED.estado,fecha_evento=EXCLUDED.fecha_evento""",
           (f["hermano"], f["tipo"], f["estado"], f.get("fecha") or None), commit=True)
+        log_audit("CREAR","encuentros", f"h={f.get('hermano')} tipo={f.get('tipo')}")
         flash("Encuentro registrado", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("encuentros"))
@@ -904,6 +938,7 @@ def enc_masivo_guardar():
               (hid, tipo, estado, fecha), commit=True)
             count += 1
         except: pass
+    log_audit("CREAR","encuentros", f"masivo {count} tipo={tipo}")
     flash(f"Encuentro registrado para {count} discípulos", "ok")
     return redirect(url_for("encuentros"))
 
@@ -976,6 +1011,7 @@ def enc_guia_guardar():
 @permiso_req("encuentros", "eliminar")
 def enc_eliminar(eid):
     q("DELETE FROM encuentro_participacion WHERE id=%s", (eid,), commit=True)
+    log_audit("ELIMINAR","encuentros", f"id={eid}")
     flash("Encuentro eliminado", "ok")
     return redirect(url_for("encuentros"))
 
@@ -1007,6 +1043,7 @@ def seg_registrar(hid):
     f = request.form
     q("INSERT INTO seguimiento(hermano_id,tipo,comentario,responsable,contactado,proximo_contacto) VALUES(%s,%s,%s,%s,%s,NULLIF(%s,'')::date)",
       (hid, f.get("tipo", "LLAMADA"), f.get("comentario"), f.get("responsable"), f.get("contactado") == "on", f.get("proximo") or None), commit=True)
+    log_audit("CREAR","seguimiento", f"hermano {hid} tipo={f.get('tipo')}")
     flash("Seguimiento registrado", "ok"); return redirect(url_for("seguimiento"))
 
 @app.post("/seguimiento/visita/<int:vid>/registrar")
@@ -1017,6 +1054,7 @@ def seg_visita_registrar(vid):
     q("INSERT INTO seguimiento(visita_id,tipo,comentario,responsable,contactado,proximo_contacto) VALUES(%s,%s,%s,%s,%s,NULLIF(%s,'')::date)",
       (vid, f.get("tipo", "LLAMADA"), f.get("comentario"), f.get("responsable"), f.get("contactado") == "on", f.get("proximo") or None), commit=True)
     q("UPDATE visitas SET estado='EN SEGUIMIENTO' WHERE id=%s AND estado='PENDIENTE'", (vid,), commit=True)
+    log_audit("CREAR","seguimiento", f"visita {vid} tipo={f.get('tipo')}")
     flash("Seguimiento de visita registrado (pasó a EN SEGUIMIENTO)", "ok"); return redirect(url_for("seguimiento"))
 
 @app.post("/seguimiento/<int:sid>/eliminar")
@@ -1024,6 +1062,7 @@ def seg_visita_registrar(vid):
 @permiso_req("seguimiento", "eliminar")
 def seg_eliminar(sid):
     q("DELETE FROM seguimiento WHERE id=%s", (sid,), commit=True)
+    log_audit("ELIMINAR","seguimiento", f"id={sid}")
     flash("Seguimiento eliminado", "ok")
     return redirect(url_for("seguimiento"))
 
@@ -1066,6 +1105,7 @@ def visita_crear():
       (f.get("rut") or None, f["nombre"].strip(), f.get("direccion"), f.get("telefono"), f.get("correo") or None, f.get("comuna") or None,
        f.get("invitado") or None, f.get("invtexto") or None, f.get("fecha") or None, f["motivo"].strip(),
        f.get("estado", "PENDIENTE"), f.get("responsable") or None, f.get("obs")), commit=True)
+    log_audit("CREAR","visitas", f"{f.get('nombre','')}")
     flash("Visita registrada", "ok"); return redirect(url_for("visitas"))
 
 @app.post("/visitas/<int:vid>/estado")
@@ -1083,6 +1123,7 @@ def visita_estado(vid):
     obs_val = f.get("obs") if f.get("obs") is not None else act["observacion"]
     q("UPDATE visitas SET estado=%s, responsable=%s, observacion=%s WHERE id=%s",
       (estado_val, resp, obs_val, vid), commit=True)
+    log_audit("EDITAR","visitas", f"id={vid} estado={f.get('estado')}")
     flash("Visita actualizada", "ok"); return redirect(url_for("visitas"))
 
 @app.post("/visitas/<int:vid>/integrar")
@@ -1111,6 +1152,7 @@ def visita_integrar(vid):
             cur.execute("INSERT INTO discipulado(hermano_id,lider_id,es_discipulo_activo,observacion) VALUES(%s,%s,TRUE,'Integrado desde visita')", (hid, lider_id))
             cur.execute("UPDATE visitas SET estado='INTEGRADO', hermano_id=%s WHERE id=%s", (hid, vid))
             c.commit()
+        log_audit("CREAR","visitas", f"integrar visita {vid} -> hermano {hid}")
         flash(f"Integrado: ahora es hermano + asignado a célula (id {hid})", "ok")
     except Exception as e:
         flash(f"Error al integrar (¿RUT duplicado?): {e}", "error")
@@ -1121,6 +1163,7 @@ def visita_integrar(vid):
 @permiso_req("visitas", "eliminar")
 def visita_eliminar(vid):
     q("DELETE FROM visitas WHERE id=%s", (vid,), commit=True)
+    log_audit("ELIMINAR","visitas", f"id={vid}")
     flash("Visita eliminada", "ok")
     return redirect(url_for("visitas"))
 
@@ -1209,6 +1252,7 @@ def celulas_informe_update(cid):
            f.get("realizo") == "on", f.get("justificacion"), f.get("asistieron"),
            f.get("no_asistieron"), f.get("ofrenda") or "0", f.get("tipo_ofrenda"),
            f.get("modalidad"), cid), commit=True)
+        log_audit("EDITAR","celulas", f"id={cid}")
         flash("Informe actualizado", "ok")
     except Exception as e:
         flash(f"Error: {e}", "error")
@@ -1220,6 +1264,7 @@ def celulas_informe_update(cid):
 def celulas_informe_eliminar(cid):
     try:
         q("DELETE FROM celulas_informe WHERE id=%s", (cid,), commit=True)
+        log_audit("ELIMINAR","celulas", f"id={cid}")
         flash("Informe eliminado", "ok")
     except Exception as e:
         flash(f"Error: {e}", "error")
@@ -1323,6 +1368,42 @@ def api_hermanos():
     texto = f"%{request.args.get('q','')}%"
     return jsonify(q("SELECT * FROM v_hermanos_completo WHERE nombre_completo ILIKE %s LIMIT 100", (texto,)))
 
+# ---------- AUDITORIA ----------
+@app.get("/auditoria")
+@login_req
+def auditoria():
+    if session.get("rol") != "SUPERADMIN" and not tiene_permiso(session.get("rol",""), "auditoria", "leer", session.get("uid")):
+        flash("No tiene permiso para ver auditoría", "error")
+        return redirect(url_for("index"))
+    texto = request.args.get("q","")
+    fmod = request.args.get("fmod","")
+    facc = request.args.get("facc","")
+    fdesde = request.args.get("desde","")
+    fhasta = request.args.get("hasta","")
+    exp = request.args.get("export","")
+    where = "WHERE (username ILIKE %s OR detalle ILIKE %s)"
+    params = [f"%{texto}%", f"%{texto}%"]
+    if fmod:
+        where += " AND modulo=%s"
+        params.append(fmod)
+    if facc:
+        where += " AND accion=%s"
+        params.append(facc)
+    if fdesde:
+        where += " AND created_at::date >= %s"
+        params.append(fdesde)
+    if fhasta:
+        where += " AND created_at::date <= %s"
+        params.append(fhasta)
+    rows = q(f"SELECT * FROM auditoria {where} ORDER BY created_at DESC LIMIT 500", tuple(params))
+    if exp == "excel":
+        return to_excel(rows, ["created_at","username","rol","accion","modulo","detalle","ip"], "auditoria.xlsx")
+    if exp == "pdf":
+        return to_pdf("Auditoría MCCI", rows, ["created_at","username","accion","modulo"], "auditoria.pdf")
+    mods = q("SELECT DISTINCT modulo FROM auditoria ORDER BY modulo")
+    accs = q("SELECT DISTINCT accion FROM auditoria ORDER BY accion")
+    return render_template("auditoria.html", rows=rows, texto=texto, fmod=fmod, facc=facc, fdesde=fdesde, fhasta=fhasta, mods=mods, accs=accs)
+
 # ---------- CONFIGURACION ----------
 CATALOGOS = [
     {"key":"redes","nombre":"Redes","icon":"🔴","tabla":"catalogo_redes","tiene_orden":False},
@@ -1416,6 +1497,7 @@ def configuracion_accion():
 
             elif accion == "eliminar_usuario" and item_id:
                 q("DELETE FROM usuarios WHERE id=%s", (item_id,), commit=True)
+                log_audit("ELIMINAR","usuarios", f"id={item_id}")
                 flash("Usuario eliminado", "ok")
 
             elif accion == "editar_usuario" and item_id:
@@ -1439,6 +1521,7 @@ def configuracion_accion():
                 if updates:
                     params.append(item_id)
                     q(f"UPDATE usuarios SET {','.join(updates)} WHERE id=%s", tuple(params), commit=True)
+                    log_audit("EDITAR","usuarios", f"id={item_id}")
                     flash("Usuario actualizado", "ok")
 
             elif accion == "guardar_permisos" and item_id:
@@ -1486,6 +1569,7 @@ def configuracion_accion():
                         else:
                             from werkzeug.security import generate_password_hash
                             q("UPDATE usuarios SET password_hash=%s, primer_login=TRUE WHERE id=%s", (generate_password_hash(nueva), item_id), commit=True)
+                            log_audit("RESET_CLAVE","usuarios", f"id={item_id}")
                             flash(f"Contraseña actualizada (usuario id {item_id}) — deberá cambiarla al ingresar", "ok")
 
         else:

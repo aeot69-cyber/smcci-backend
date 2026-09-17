@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3"><h4>📜 Auditoría <small class="text-muted">Control de accesos y acciones</small></h4>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
+<li><b>LOGIN/LOGOUT:</b> quién y cuándo se conectó.</li>
+<li><b>CREAR/EDITAR/ELIMINAR:</b> qué módulo y detalle.</li>
+<li><b>RESET_CLAVE:</b> cambio de contraseña por SUPERADMIN.</li>
+<li><b>Permiso:</b> SUPERADMIN ve todo. Para dar acceso a un ADMIN, ve a ⚙️ Configuración → Roles → Auditar → marcar Leer.</li></ul></details>
+<form class="row g-2 mb-3" method="get">
+<div class="col"><input class="form-control" name="q" value="{{texto}}" placeholder="Buscar usuario o detalle..."></div>
+<div class="col-md-2"><select class="form-select" name="fmod" onchange="this.form.submit()"><option value="">Todos los módulos</option>{% for m in mods %}<option value="{{m.modulo}}" {% if fmod==m.modulo %}selected{% endif %}>{{m.modulo}}</option>{% endfor %}</select></div>
+<div class="col-md-2"><select class="form-select" name="facc" onchange="this.form.submit()"><option value="">Todas las acciones</option>{% for a in accs %}<option value="{{a.accion}}" {% if facc==a.accion %}selected{% endif %}>{{a.accion}}</option>{% endfor %}</select></div>
+<div class="col-md-2"><input class="form-control" type="date" name="desde" value="{{fdesde}}" title="Desde"></div>
+<div class="col-md-2"><input class="form-control" type="date" name="hasta" value="{{fhasta}}" title="Hasta"></div>
+<div class="col-auto"><button class="btn btn-primary">🔍 Filtrar</button> <a class="btn btn-outline-success" href="/auditoria?export=excel&q={{texto}}&fmod={{fmod}}&facc={{facc}}&desde={{fdesde}}&hasta={{fhasta}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/auditoria?export=pdf&q={{texto}}&fmod={{fmod}}&facc={{facc}}&desde={{fdesde}}&hasta={{fhasta}}" target="_blank">PDF</a></div>
+</form>
+<div style="overflow-x:auto"><table class="table table-sm table-striped"><tr><th>Fecha</th><th>Usuario</th><th>Rol</th><th>Acción</th><th>Módulo</th><th>Detalle</th><th>IP</th></tr>
+{% for r in rows %}<tr>
+<td><small>{{r.created_at.strftime('%d/%m %H:%M') if r.created_at else ''}}</small></td>
+<td><b>{{r.username or '—'}}</b></td>
+<td><span class="badge bg-secondary">{{r.rol or '—'}}</span></td>
+<td><span class="badge bg-{{'success' if r.accion=='LOGIN' else 'warning' if r.accion=='LOGOUT' else 'primary' if r.accion=='CREAR' else 'info' if r.accion=='EDITAR' else 'danger' if r.accion=='ELIMINAR' else 'dark'}}">{{r.accion}}</span></td>
+<td>{{r.modulo}}</td>
+<td><small>{{r.detalle or '—'}}</small></td>
+<td><small>{{r.ip or '—'}}</small></td>
+</tr>{% else %}<tr><td colspan="7" class="text-center text-muted">Sin registros para el filtro.</td></tr>{% endfor %}
+</table></div>
+<p class="text-muted small">Mostrando hasta 500 registros más recientes. Use filtros o exporte a Excel para más.</p>
+</div>
+{% endblock %}
