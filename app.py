@@ -38,29 +38,66 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("FLASK_ENV") == "production", PERMANENT_SESSION_LIFETIME=3600)
 
 def db():
-    # Soporta DATABASE_URL (Render) con fallback automático a Render externo y luego local
+    # Reusa una sola conexión por request (evita 23 handshakes en /configuracion → evita timeout en Render)
+    try:
+        if hasattr(g, "_db_conn") and g._db_conn and not g._db_conn.closed:
+            return g._db_conn
+    except RuntimeError:
+        pass  # fuera de contexto de app, crea conexión directa
+    conn = None
+    last_err = None
+    # 1) DATABASE_URL
     db_url = os.environ.get("DATABASE_URL", "")
     if db_url:
-        # postgres://user:pass@host:port/dbname
         try:
             from urllib.parse import urlparse
             u = urlparse(db_url)
-            return psycopg2.connect(host=u.hostname, port=u.port or 5432, dbname=u.path.lstrip("/"), user=u.username, password=u.password, cursor_factory=RealDictCursor)
+            conn = psycopg2.connect(host=u.hostname, port=u.port or 5432, dbname=u.path.lstrip("/"), user=u.username, password=u.password, cursor_factory=RealDictCursor, connect_timeout=5)
+            try: g._db_conn = conn
+            except RuntimeError: pass
+            return conn
         except Exception as e:
-            print(f"DATABASE_URL parse failed: {e}, fallback to DB_* vars")
-    # Fallback: intenta variables DB_*; si no están (nuevo servicio sin env), usa Render externo conocido
+            last_err = e
+            print(f"DATABASE_URL connect failed: {e}")
+    # 2) DB_* vars
     host = os.environ.get("DB_HOST")
-    if not host or not os.environ.get("DB_PASSWORD"):
-        # Fallback automático Render (para que no tengas que configurar manual)
-        return psycopg2.connect(host="dpg-dakpu9ifngtc73a581mg-a.oregon-postgres.render.com", port=5432, dbname="iglesia_mcci", user="mcci", password="s8hzb0HSgPVpdX1NgEYzUgQBTKikCy8J", cursor_factory=RealDictCursor)
-    return psycopg2.connect(host=host,
-        port=os.environ.get("DB_PORT", "5432"), dbname=os.environ.get("DB_NAME", "Iglesia_MCCI"),
-        user=os.environ["DB_USER"], password=os.environ["DB_PASSWORD"], cursor_factory=RealDictCursor)
+    pwd = os.environ.get("DB_PASSWORD")
+    if host and pwd:
+        try:
+            conn = psycopg2.connect(host=host, port=os.environ.get("DB_PORT", "5432"), dbname=os.environ.get("DB_NAME", "Iglesia_MCCI"), user=os.environ.get("DB_USER"), password=pwd, cursor_factory=RealDictCursor, connect_timeout=5)
+            try: g._db_conn = conn
+            except RuntimeError: pass
+            return conn
+        except Exception as e:
+            last_err = e
+            print(f"DB_* connect failed: {e}")
+    # 3) Fallback Render externo
+    try:
+        conn = psycopg2.connect(host="dpg-dakpu9ifngtc73a581mg-a.oregon-postgres.render.com", port=5432, dbname="iglesia_mcci", user="mcci", password="s8hzb0HSgPVpdX1NgEYzUgQBTKikCy8J", cursor_factory=RealDictCursor, connect_timeout=5)
+        try: g._db_conn = conn
+        except RuntimeError: pass
+        return conn
+    except Exception as e:
+        print(f"Fallback Render connect failed: {e}, last_err={last_err}")
+        raise
+
+@app.teardown_appcontext
+def close_db(exc):
+    conn = getattr(g, "_db_conn", None)
+    if conn is not None:
+        try:
+            if not conn.closed:
+                conn.close()
+        except: pass
+        g._db_conn = None
 
 def q(sql, p=(), one=False, commit=False):
-    with db() as c, c.cursor() as cur:
+    c = db()
+    with c.cursor() as cur:
         cur.execute(sql, p)
-        if commit: c.commit(); return cur.rowcount
+        if commit:
+            c.commit()
+            return cur.rowcount
         return cur.fetchone() if one else cur.fetchall()
 
 def update_parcial(tabla, id_val, campos_valores, id_col="id", permitir_null=None):
@@ -1159,7 +1196,8 @@ def visita_integrar(vid):
     nombres = " ".join(partes[:2]) if len(partes) > 2 else (partes[0] if partes else "S/N")
     paterno = partes[-1] if len(partes) > 1 else "S/A"
     try:
-        with db() as c, c.cursor() as cur:
+        c = db()
+        with c.cursor() as cur:
             cur.execute("""INSERT INTO hermanos(rut,nombres,apellido_paterno,telefono,direccion,correo,comuna_id,invitado_por_id,invitado_por_texto)
                 VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                 (rut, nombres, paterno, v["telefono"], v["direccion"], v["correo"], v["comuna_id"], v["invitado_por_id"], v["invitado_por_texto"]))
