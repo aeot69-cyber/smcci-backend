@@ -19,9 +19,10 @@
 <div class="pw-toggle"><input class="form-control" type="password" name="password" id="pwd-user" {{'' if u else 'required'}} minlength="6"><i class="bi bi-eye toggle-icon" onclick="togglePwd('pwd-user',this)"></i></div>
 </div>
 <div class="mb-3">
-<label class="form-label">Rol</label>
+ <label class="form-label">Rol</label>
 <select class="form-select" name="rol" required>
-{% for r in ['SUPERADMIN','ADMIN','CONSULTA'] %}
+{% set _roles = roles if roles is defined else ['SUPERADMIN','ADMIN','CONSULTA'] %}
+{% for r in _roles %}
 {% if rol == 'SUPERADMIN' or r != 'SUPERADMIN' %}
 <option value="{{r}}" {{'selected' if u and u.rol==r else ''}}>{{r}}</option>
 {% endif %}

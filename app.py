@@ -370,7 +370,7 @@ def usuarios():
 def usuario_nuevo():
     lideres = q("""SELECT l.id, h.nombre_completo FROM lideres l
         JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY h.nombre_completo""")
-    return render_template("usuario_form.html", u=None, rol=session.get("rol",""), lideres=lideres)
+    return render_template("usuario_form.html", u=None, rol=session.get("rol",""), lideres=lideres, roles=obtener_roles())
 
 @app.post("/usuarios/nuevo")
 @login_req
@@ -405,7 +405,7 @@ def usuario_editar(uid):
     if not u: flash("Usuario no encontrado", "error"); return redirect(url_for("usuarios"))
     lideres = q("""SELECT l.id, h.nombre_completo FROM lideres l
         JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY h.nombre_completo""")
-    return render_template("usuario_form.html", u=u, rol=session.get("rol",""), lideres=lideres)
+    return render_template("usuario_form.html", u=u, rol=session.get("rol",""), lideres=lideres, roles=obtener_roles())
 
 @app.post("/usuarios/<int:uid>/editar")
 @login_req
@@ -453,6 +453,26 @@ def usuario_eliminar(uid):
     else:
         q("DELETE FROM usuarios WHERE id=%s", (uid,), commit=True)
         flash("Usuario eliminado", "ok")
+    return redirect(url_for("usuarios"))
+
+@app.post("/usuarios/<int:uid>/reset_clave")
+@login_req
+@permiso_req("usuarios", "editar")
+def usuario_reset_clave(uid):
+    if session.get("rol") != "SUPERADMIN":
+        flash("Solo SUPERADMIN puede resetear contraseñas", "error")
+        return redirect(url_for("usuarios"))
+    nueva = request.form.get("nueva_clave","").strip()
+    if not nueva:
+        flash("Debe ingresar una nueva contraseña", "error")
+        return redirect(url_for("usuarios"))
+    err = validar_clave(nueva)
+    if err:
+        flash(f"La clave no cumple: {', '.join(err)}", "error")
+        return redirect(url_for("usuarios"))
+    from werkzeug.security import generate_password_hash
+    q("UPDATE usuarios SET password_hash=%s, primer_login=TRUE WHERE id=%s", (generate_password_hash(nueva), uid), commit=True)
+    flash(f"Contraseña de usuario {uid} actualizada — deberá cambiarla al ingresar", "ok")
     return redirect(url_for("usuarios"))
 
 @app.post("/usuarios/permisos")
@@ -1451,6 +1471,22 @@ def configuracion_accion():
                         q("INSERT INTO usuario_permisos (usuario_id,modulo,puede_leer,puede_crear,puede_editar,puede_eliminar,puede_exportar) VALUES(%s,%s,%s,%s,%s,%s,%s)",
                           (user_id, mod["key"], leer, crear, editar, eliminar, exportar), commit=True)
                 flash("Permisos individuales actualizados", "ok")
+
+            elif accion == "reset_clave" and item_id:
+                if session.get("rol") != "SUPERADMIN":
+                    flash("Solo SUPERADMIN puede resetear contraseñas", "error")
+                else:
+                    nueva = f.get("nueva_clave","").strip()
+                    if not nueva:
+                        flash("Debe ingresar una nueva contraseña", "error")
+                    else:
+                        err = validar_clave(nueva)
+                        if err:
+                            flash(f"La clave no cumple: {', '.join(err)}", "error")
+                        else:
+                            from werkzeug.security import generate_password_hash
+                            q("UPDATE usuarios SET password_hash=%s, primer_login=TRUE WHERE id=%s", (generate_password_hash(nueva), item_id), commit=True)
+                            flash(f"Contraseña actualizada (usuario id {item_id}) — deberá cambiarla al ingresar", "ok")
 
         else:
             tablas_validas = [c["tabla"] for c in CATALOGOS]

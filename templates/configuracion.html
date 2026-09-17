@@ -147,7 +147,8 @@
 </td>
 <td>{% if u.activo %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}</td>
 <td><button class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#perm{{u.id}}">🔑 Permisos</button></td>
-<td class="text-nowrap">
+ <td class="text-nowrap">
+{% if rol == 'SUPERADMIN' %}<button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#clave{{u.id}}" title="Cambiar contraseña (SUPERADMIN)">🔑</button>{% endif %}
 <form method="post" style="display:inline"><input type="hidden" name="catalogo" value="__usuarios__"><input type="hidden" name="accion" value="toggle_usuario"><input type="hidden" name="item_id" value="{{u.id}}">
 <button class="btn btn-sm btn-outline-{% if u.activo %}warning{% else %}success{% endif %}" title="{% if u.activo %}Desactivar{% else %}Activar{% endif %}">{% if u.activo %}⏸{% else %}▶{% endif %}</button></form>
 <form method="post" style="display:inline"><input type="hidden" name="catalogo" value="__usuarios__"><input type="hidden" name="accion" value="eliminar_usuario"><input type="hidden" name="item_id" value="{{u.id}}">
@@ -203,6 +204,23 @@
 {% endfor %}
 </table>
 <button class="btn btn-success btn-sm">💾 Guardar permisos individuales</button>
+</form>
+</div>
+</div></div>
+</div>
+{% endfor %}
+
+{% for u in usuarios %}
+<div class="modal fade" id="clave{{u.id}}" tabindex="-1">
+<div class="modal-dialog"><div class="modal-content">
+<div class="modal-header"><h6>🔑 Cambiar contraseña — {{u.username}}</h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
+<div class="modal-body">
+<form method="post">
+<input type="hidden" name="catalogo" value="__usuarios__">
+<input type="hidden" name="accion" value="reset_clave">
+<input type="hidden" name="item_id" value="{{u.id}}">
+<div class="mb-2"><label class="form-label">Nueva contraseña</label><div class="pw-toggle"><input class="form-control" type="password" name="nueva_clave" id="pwd-{{u.id}}" required minlength="8" placeholder="Min 8, mayúscula, minúscula, número y signo"><i class="bi bi-eye toggle-icon" onclick="togglePwd('pwd-{{u.id}}',this)"></i></div><small class="text-muted">8+ caracteres, 1 mayúscula, 1 minúscula, 1 número y 1 signo. El usuario deberá cambiarla al ingresar.</small></div>
+<button class="btn btn-primary w-100">💾 Guardar nueva clave</button>
 </form>
 </div>
 </div></div>
