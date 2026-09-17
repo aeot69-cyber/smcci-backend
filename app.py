@@ -38,7 +38,22 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("FLASK_ENV") == "production", PERMANENT_SESSION_LIFETIME=3600)
 
 def db():
-    return psycopg2.connect(host=os.environ.get("DB_HOST", "localhost"),
+    # Soporta DATABASE_URL (Render) con fallback automático a Render externo y luego local
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url:
+        # postgres://user:pass@host:port/dbname
+        try:
+            from urllib.parse import urlparse
+            u = urlparse(db_url)
+            return psycopg2.connect(host=u.hostname, port=u.port or 5432, dbname=u.path.lstrip("/"), user=u.username, password=u.password, cursor_factory=RealDictCursor)
+        except Exception as e:
+            print(f"DATABASE_URL parse failed: {e}, fallback to DB_* vars")
+    # Fallback: intenta variables DB_*; si no están (nuevo servicio sin env), usa Render externo conocido
+    host = os.environ.get("DB_HOST")
+    if not host or not os.environ.get("DB_PASSWORD"):
+        # Fallback automático Render (para que no tengas que configurar manual)
+        return psycopg2.connect(host="dpg-dakpu9ifngtc73a581mg-a.oregon-postgres.render.com", port=5432, dbname="iglesia_mcci", user="mcci", password="s8hzb0HSgPVpdX1NgEYzUgQBTKikCy8J", cursor_factory=RealDictCursor)
+    return psycopg2.connect(host=host,
         port=os.environ.get("DB_PORT", "5432"), dbname=os.environ.get("DB_NAME", "Iglesia_MCCI"),
         user=os.environ["DB_USER"], password=os.environ["DB_PASSWORD"], cursor_factory=RealDictCursor)
 
