@@ -1,0 +1,232 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3">
+<h4>⚙️ Configuración <small class="text-muted">Catálogos y usuarios del sistema</small></h4>
+
+<ul class="nav nav-tabs" id="configTabs">
+{% for cat in catalogos %}
+<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#{{cat.key}}">{{cat.icon}} {{cat.nombre}}</a></li>
+{% endfor %}
+<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#usuarios">👥 Usuarios</a></li>
+</ul>
+
+<div class="tab-content mt-3">
+
+{% for cat in catalogos %}
+<div class="tab-pane fade" id="{{cat.key}}">
+<h5>{{cat.icon}} {{cat.nombre}}</h5>
+<p class="text-muted">Administrá los valores. Los cambios se reflejan en todo el sistema.</p>
+
+<form method="post" class="row g-2 mb-3">
+<input type="hidden" name="catalogo" value="{{cat.tabla}}">
+<input type="hidden" name="accion" value="crear">
+{% if cat.tabla == 'catalogo_sexo' %}
+<div class="col"><input class="form-control" name="codigo" placeholder="Código (M/F)" maxlength="1" required></div>
+{% endif %}
+{% if cat.tabla == 'catalogo_roles_lider' %}
+<div class="col-md-1"><input class="form-control" name="icono" placeholder="Icono" maxlength="5" title="Emoji para el rol, ej: ⭐ 🔻 👤"></div>
+{% endif %}
+<div class="col"><input class="form-control" name="nombre" placeholder="Nombre del nuevo valor" required></div>
+{% if cat.tiene_orden %}
+<div class="col-md-1"><input class="form-control" name="orden" type="number" placeholder="Orden" value="1"></div>
+{% endif %}
+<div class="col-auto"><button class="btn btn-success btn-sm">➕ Agregar</button></div>
+</form>
+
+<table class="table table-sm table-striped">
+<tr><th>ID</th>{% if cat.tabla == 'catalogo_roles_lider' %}<th>Icono</th>{% endif %}{% if cat.tabla == 'catalogo_sexo' %}<th>Código</th>{% endif %}<th>Nombre</th>{% if cat.tiene_orden %}<th>Orden</th>{% endif %}<th>Estado</th><th>Acciones</th></tr>
+{% for item in cat.valores %}
+<tr>
+<td>{{item.id}}</td>
+{% if cat.tabla == 'catalogo_roles_lider' %}<td style="font-size:1.3em;text-align:center">{{item.icono or '—'}}</td>{% endif %}
+{% if cat.tabla == 'catalogo_sexo' %}<td>{{item.codigo}}</td>{% endif %}
+<td><b>{{item.nombre}}</b></td>
+{% if cat.tiene_orden %}<td>{{item.orden}}</td>{% endif %}
+<td>{% if item.activo %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}</td>
+<td>
+{% if cat.tabla == 'catalogo_roles_lider' %}
+<button class="btn btn-sm btn-outline-secondary" onclick="editarIcono('{{cat.tabla}}', {{item.id}}, '{{item.icono or ''}}')" title="Cambiar icono">🎨</button>
+{% endif %}
+{% if cat.tabla == 'catalogo_roles_usuario' %}
+<button class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#permrol_{{item.id}}" title="Asignar permisos al rol {{item.nombre}}">🔑 Permisos</button>
+{% endif %}
+<form method="post" style="display:inline"><input type="hidden" name="catalogo" value="{{cat.tabla}}"><input type="hidden" name="accion" value="toggle"><input type="hidden" name="item_id" value="{{item.id}}">
+<button class="btn btn-sm btn-outline-{% if item.activo %}warning{% else %}success{% endif %}" title="{% if item.activo %}Desactivar{% else %}Activar{% endif %}">{% if item.activo %}⏸{% else %}▶{% endif %}</button></form>
+<form method="post" style="display:inline"><input type="hidden" name="catalogo" value="{{cat.tabla}}"><input type="hidden" name="accion" value="eliminar"><input type="hidden" name="item_id" value="{{item.id}}">
+<button class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="return confirm('¿Eliminar {{item.nombre}}?')">🗑</button></form>
+</td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="text-muted">Sin registros</td></tr>
+{% endfor %}
+</table>
+</div>
+
+{% if cat.tabla == 'catalogo_roles_usuario' %}
+{% for item in cat.valores %}
+<div class="modal fade" id="permrol_{{item.id}}" tabindex="-1">
+<div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal-header"><h6>🔑 Permisos del rol: {{item.nombre}}</h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
+<div class="modal-body">
+{% if item.nombre == 'SUPERADMIN' %}
+<div class="alert alert-info">El rol SUPERADMIN tiene acceso total a todos los módulos.</div>
+{% else %}
+<form method="post">
+<input type="hidden" name="catalogo" value="__usuarios__">
+<input type="hidden" name="accion" value="guardar_permisos">
+<input type="hidden" name="item_id" value="{{item.id}}">
+<input type="hidden" name="user_rol" value="{{item.nombre}}">
+<table class="table table-sm table-bordered">
+<tr class="table-info"><th>Módulo</th><th class="text-center">Leer</th><th class="text-center">Crear</th><th class="text-center">Editar</th><th class="text-center">Eliminar</th><th class="text-center">Exportar</th></tr>
+{% for mod in modulos %}
+<tr><td>{{mod.nombre}}</td>
+{% for acc in ['leer','crear','editar','eliminar','exportar'] %}
+<td class="text-center"><input type="checkbox" name="perm_{{mod.key}}_{{acc}}" value="1" {% if perm_all.get(item.nombre,{}).get(mod.key,{}).get(acc) %}checked{% endif %}></td>
+{% endfor %}
+</tr>
+{% endfor %}
+</table>
+<button class="btn btn-success btn-sm">💾 Guardar permisos del rol</button>
+</form>
+<p class="text-muted small mt-2">Los permisos del rol aplican a TODOS los usuarios con este rol.</p>
+{% endif %}
+</div>
+</div></div>
+</div>
+{% endfor %}
+{% endif %}
+{% endfor %}
+
+<div class="tab-pane fade" id="usuarios">
+<h5>👥 Usuarios del sistema</h5>
+
+<div class="card mb-3 p-3">
+<h6>➕ Crear usuario</h6>
+<form method="post" class="row g-2 align-items-end">
+<input type="hidden" name="catalogo" value="__usuarios__">
+<input type="hidden" name="accion" value="crear_usuario">
+<div class="col-md-2"><label class="form-label small">Usuario</label><input class="form-control" name="username" placeholder="ej: juan123" required></div>
+<div class="col-md-2"><label class="form-label small">Contraseña</label><input class="form-control" name="password" placeholder="Mín. 8 chars" required></div>
+<div class="col-md-2"><label class="form-label small">Rol</label>
+<select class="form-select" name="rol" required>
+{% for r in roles %}<option value="{{r}}">{{r}}</option>{% endfor %}
+</select></div>
+<div class="col-md-4"><label class="form-label small">Vincular a líder (opcional)</label>
+<select class="form-select" name="vinculo_id"><option value="">— Sin vínculo —</option>
+{% for l in lideres %}<option value="{{l.id}}">{{l.nombre_completo}} ({{l.red}})</option>{% endfor %}
+</select></div>
+<div class="col-auto"><button class="btn btn-success">Crear</button></div>
+</form>
+</div>
+
+<table class="table table-hover">
+<tr><th>Usuario</th><th>Rol</th><th>Vínculo</th><th>Estado</th><th>Permisos</th><th>Acciones</th></tr>
+{% for u in usuarios %}
+<tr>
+<td><b>{{u.username}}</b></td>
+<td>
+<form method="post" class="d-inline">
+<input type="hidden" name="catalogo" value="__usuarios__">
+<input type="hidden" name="accion" value="editar_usuario">
+<input type="hidden" name="item_id" value="{{u.id}}">
+<select name="nuevo_rol" class="form-select form-select-sm" onchange="this.form.submit()" title="Cambiar rol" style="width:auto;display:inline-block">
+{% for r in roles %}<option value="{{r}}" {% if u.rol==r %}selected{% endif %}>{{r}}</option>{% endfor %}
+</select>
+</form>
+</td>
+<td>
+<form method="post" class="d-inline">
+<input type="hidden" name="catalogo" value="__usuarios__">
+<input type="hidden" name="accion" value="editar_usuario">
+<input type="hidden" name="item_id" value="{{u.id}}">
+<input type="hidden" name="nuevo_rol" value="{{u.rol}}">
+<select name="nuevo_vinculo" class="form-select form-select-sm" onchange="this.form.submit()" title="Cambiar vínculo" style="width:auto;display:inline-block">
+<option value="">— Sin vínculo —</option>
+{% for l in lideres %}<option value="{{l.id}}" {% if u.lider_id==l.id %}selected{% endif %}>{{l.nombre_completo}}</option>{% endfor %}
+</select>
+</form>
+</td>
+<td>{% if u.activo %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}</td>
+<td><button class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#perm{{u.id}}">🔑 Permisos</button></td>
+<td class="text-nowrap">
+<form method="post" style="display:inline"><input type="hidden" name="catalogo" value="__usuarios__"><input type="hidden" name="accion" value="toggle_usuario"><input type="hidden" name="item_id" value="{{u.id}}">
+<button class="btn btn-sm btn-outline-{% if u.activo %}warning{% else %}success{% endif %}" title="{% if u.activo %}Desactivar{% else %}Activar{% endif %}">{% if u.activo %}⏸{% else %}▶{% endif %}</button></form>
+<form method="post" style="display:inline"><input type="hidden" name="catalogo" value="__usuarios__"><input type="hidden" name="accion" value="eliminar_usuario"><input type="hidden" name="item_id" value="{{u.id}}">
+<button class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="return confirm('¿Eliminar usuario {{u.username}}?')">🗑</button></form>
+</td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="text-muted">Sin usuarios</td></tr>
+{% endfor %}
+</table>
+</div>
+
+</div>
+</div>
+
+{% for u in usuarios %}
+<div class="modal fade" id="perm{{u.id}}" tabindex="-1">
+<div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal-header"><h6>🔑 Permisos — {{u.username}} <span class="badge bg-{% if u.rol=='SUPERADMIN' %}danger{% elif u.rol=='ADMIN' %}primary{% else %}secondary{% endif %}">{{u.rol}}</span></h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
+<div class="modal-body">
+{% if u.rol == 'SUPERADMIN' %}
+<div class="alert alert-info mb-3">El rol SUPERADMIN tiene acceso total a todos los módulos.</div>
+{% else %}
+
+<h6 class="text-primary">📋 Permisos del rol: {{u.rol}}</h6>
+<table class="table table-sm table-bordered mb-3">
+<tr class="table-secondary"><th>Módulo</th><th class="text-center">Leer</th><th class="text-center">Crear</th><th class="text-center">Editar</th><th class="text-center">Eliminar</th><th class="text-center">Exportar</th></tr>
+{% for mod in modulos %}
+<tr><td>{{mod.nombre}}</td>
+{% for acc in ['leer','crear','editar','eliminar','exportar'] %}
+<td class="text-center">{% if perm_all.get(u.rol,{}).get(mod.key,{}).get(acc) %}✅{% else %}—{% endif %}</td>
+{% endfor %}
+</tr>
+{% endfor %}
+</table>
+<p class="text-muted small">Los permisos del rol aplican a TODOS los usuarios con este rol.</p>
+{% endif %}
+
+<h6 class="text-success mt-3">👤 Permisos individuales de {{u.username}}</h6>
+<p class="text-muted small">Estos permisos SOLO aplican a este usuario. Si se marcan, sobreescriben los del rol.</p>
+<form method="post">
+<input type="hidden" name="catalogo" value="__usuarios__">
+<input type="hidden" name="accion" value="guardar_permisos_usuario">
+<input type="hidden" name="item_id" value="{{u.id}}">
+<table class="table table-sm table-bordered">
+<tr class="table-success"><th>Módulo</th><th class="text-center">Leer</th><th class="text-center">Crear</th><th class="text-center">Editar</th><th class="text-center">Eliminar</th><th class="text-center">Exportar</th></tr>
+{% for mod in modulos %}
+<tr><td>{{mod.nombre}}</td>
+{% for acc in ['leer','crear','editar','eliminar','exportar'] %}
+<td class="text-center"><input type="checkbox" name="uperm_{{mod.key}}_{{acc}}" value="1" {% if user_perms.get(u.id,{}).get(mod.key,{}).get('puede_'+acc) %}checked{% endif %}></td>
+{% endfor %}
+</tr>
+{% endfor %}
+</table>
+<button class="btn btn-success btn-sm">💾 Guardar permisos individuales</button>
+</form>
+</div>
+</div></div>
+</div>
+{% endfor %}
+
+<script>
+function renombrar(tabla, id, nombre) {
+    var nuevo = prompt("Nuevo nombre para:", nombre);
+    if (nuevo && nuevo !== nombre) {
+        var f = document.createElement('form');
+        f.method='post';
+        f.innerHTML='<input name="catalogo" value="'+tabla+'"><input name="accion" value="renombrar"><input name="item_id" value="'+id+'"><input name="nombre" value="'+nuevo+'">';
+        document.body.appendChild(f); f.submit();
+    }
+}
+function editarIcono(tabla, id, actual) {
+    var nuevo = prompt("Nuevo icono (emoji) para el rol:", actual || "⭐");
+    if (nuevo !== null) {
+        var f = document.createElement('form');
+        f.method='post';
+        f.innerHTML='<input name="catalogo" value="'+tabla+'"><input name="accion" value="editar_icono"><input name="item_id" value="'+id+'"><input name="icono" value="'+nuevo+'">';
+        document.body.appendChild(f); f.submit();
+    }
+}
+</script>
+{% endblock %}

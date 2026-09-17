@@ -1,12 +1,12 @@
 {% extends "base.html" %}{% block b %}<div class="card p-4 col-md-8"><h4>{{'✏️ Modificar' if h else '➕ Nuevo'}} Hermano</h4>
 <form method="post" class="row g-2">
-<div class="col-md-4">RUT<input class="form-control" name="rut" value="{{h.rut if h}}" {{'readonly' if h}} required></div>
+<div class="col-md-4">RUT{% if h %}<small class="text-muted ms-1">(editable — único)</small>{% endif %}<input class="form-control" name="rut" value="{{h.rut if h}}" required pattern="[0-9]{7,8}-[0-9kK]" title="Formato 12345678-9"></div>
 <div class="col-md-4">Nombres<input class="form-control" name="nombres" value="{{h.nombres if h}}" required></div>
 <div class="col-md-4">Paterno<input class="form-control" name="paterno" value="{{h.apellido_paterno if h}}" required></div>
 <div class="col-md-4">Materno<input class="form-control" name="materno" value="{{h.apellido_materno if h}}"></div>
 <div class="col-md-4">Nacimiento<input class="form-control" type="date" name="fnac" value="{{h.fecha_nacimiento if h}}"></div>
-<div class="col-md-4">Sexo<select class="form-select" name="sexo" required><option value="">--</option><option value="M" {{'selected' if h and h.sexo=='M'}}>Masculino</option><option value="F" {{'selected' if h and h.sexo=='F'}}>Femenino</option></select></div>
-<div class="col-md-4">Estado civil<select class="form-select" name="ecivil" required><option value="">--</option>{% for ec in ['SOLTERO','CASADO','VIUDO','DIVORCIADO','CONVIVIENTE'] %}<option value="{{ec}}" {{'selected' if h and h.estado_civil==ec}}>{{ec}}</option>{% endfor %}</select></div>
+<div class="col-md-4">Sexo<select class="form-select" name="sexo"><option value="">-- Ninguno --</option>{% if sexos %}{% for s in sexos %}<option value="{{s.codigo}}" {{'selected' if h and h.sexo==s.codigo}}>{{s.nombre}}</option>{% endfor %}{% else %}<option value="M" {{'selected' if h and h.sexo=='M'}}>Masculino</option><option value="F" {{'selected' if h and h.sexo=='F'}}>Femenino</option>{% endif %}</select></div>
+<div class="col-md-4">Estado civil<select class="form-select" name="ecivil"><option value="">-- Ninguno --</option>{% if estados_civil %}{% for ec in estados_civil %}<option value="{{ec.nombre}}" {{'selected' if h and h.estado_civil==ec.nombre}}>{{ec.nombre}}</option>{% endfor %}{% else %}{% for ec in ['SOLTERO','CASADO','VIUDO','DIVORCIADO','CONVIVIENTE'] %}<option value="{{ec}}" {{'selected' if h and h.estado_civil==ec}}>{{ec}}</option>{% endfor %}{% endif %}</select></div>
 <div class="col-md-4">Correo<input class="form-control" name="correo" value="{{h.correo if h}}"></div>
 <div class="col-md-4">Tel<input class="form-control" name="telefono" value="{{h.telefono if h}}"></div>
 <div class="col-md-8">Dirección<input class="form-control" name="direccion" value="{{h.direccion if h}}"></div>

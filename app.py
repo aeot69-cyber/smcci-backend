@@ -48,6 +48,60 @@ def q(sql, p=(), one=False, commit=False):
         if commit: c.commit(); return cur.rowcount
         return cur.fetchone() if one else cur.fetchall()
 
+def update_parcial(tabla, id_val, campos_valores, id_col="id", permitir_null=None):
+    """Actualiza solo los campos no vacíos. Si un campo es None o '', se conserva el valor anterior.
+    Usa permitir_null=[\"col1\",\"col2\"] para permitir poner NULL explícitamente."""
+    permitir_null = permitir_null or []
+    # Sentinel para forzar NULL
+    NULL_SENTINEL = "__NULL__"
+    sets, vals = [], []
+    for col, val in campos_valores.items():
+        if val == NULL_SENTINEL:
+            sets.append(f"{col}=NULL")
+        elif col in permitir_null and val is None:
+            sets.append(f"{col}=NULL")
+        elif val is not None and val != "":
+            sets.append(f"{col}=%s")
+            vals.append(val)
+    if not sets:
+        return 0
+    vals.append(id_val)
+    return q(f"UPDATE {tabla} SET {','.join(sets)} WHERE {id_col}=%s", tuple(vals), commit=True)
+
+
+def get_catalogo(tabla, incluir_inactivos=False):
+    """Carga valores de un catálogo dinámico. Retorna lista de dicts con nombre."""
+    try:
+        where = "" if incluir_inactivos else "WHERE activo=true"
+        order = "orden, nombre" if tabla in ("catalogo_meses","tipos_encuentro") else "nombre"
+        # catalogo_sexo tiene codigo, los demás solo nombre
+        if tabla == "catalogo_sexo":
+            rows = q(f"SELECT id, codigo, nombre FROM {tabla} {where} ORDER BY {order}")
+        elif tabla == "catalogo_roles_lider":
+            rows = q(f"SELECT nombre, icono FROM {tabla} {where} ORDER BY {order}")
+            return rows
+        else:
+            rows = q(f"SELECT nombre FROM {tabla} {where} ORDER BY {order}")
+            # Normalizar a dict con .nombre para compatibilidad
+        return rows
+    except:
+        return []
+
+
+# Mapeo catálogo → (tabla_afectada, columna, valor_por_defecto) para fallback al eliminar
+CATALOGO_FALLBACK = {
+    "catalogo_redes":             [("lideres", "red", "MIXTO")],
+    "catalogo_tipo12":            [("lideres", "tipo_12", "NINGUNO")],
+    "catalogo_roles_lider":       [("lideres", "rol_lider", "NINGUNO")],
+    "catalogo_estado_civil":      [("hermanos", "estado_civil", None)],
+    "catalogo_sexo":              [("hermanos", "sexo", None)],
+    "catalogo_estado_celula":     [("lideres", "estado_celula", "EN FORMACION")],
+    "catalogo_info_enviada":      [("lideres", "info_enviada", "EN CONSULTA")],
+    "catalogo_estado_visita":     [("visitas", "estado", "PENDIENTE")],
+    "catalogo_tipo_seguimiento":  [("seguimiento", "tipo", "LLAMADA")],
+    "catalogo_roles_usuario":     [("usuarios", "rol", "CONSULTA")],
+}
+
 def login_req(fn=None, *, roles=None):
     def deco(f):
         @wraps(f)
@@ -72,11 +126,29 @@ def permiso_req(modulo, accion="leer"):
         return inner
     return deco
 
-def permisos(rol):
-    rows = q("SELECT modulo, puede_leer, puede_crear, puede_editar, puede_eliminar, puede_exportar FROM roles_permisos WHERE rol=%s", (rol,))
-    return {r["modulo"]: r for r in rows}
+from flask import g
 
-def tiene_permiso(rol, modulo, accion="leer"):
+def permisos(rol):
+    if "_perm_cache" not in g:
+        g._perm_cache = {}
+    if rol not in g._perm_cache:
+        rows = q("SELECT modulo, puede_leer, puede_crear, puede_editar, puede_eliminar, puede_exportar FROM roles_permisos WHERE rol=%s", (rol,))
+        g._perm_cache[rol] = {r["modulo"]: r for r in rows}
+    return g._perm_cache[rol]
+
+def _permisos_usuario(usuario_id):
+    if "_uperm_cache" not in g:
+        g._uperm_cache = {}
+    if usuario_id not in g._uperm_cache:
+        rows = q("SELECT modulo, puede_leer, puede_crear, puede_editar, puede_eliminar, puede_exportar FROM usuario_permisos WHERE usuario_id=%s", (usuario_id,))
+        g._uperm_cache[usuario_id] = {r["modulo"]: r for r in rows}
+    return g._uperm_cache[usuario_id]
+
+def tiene_permiso(rol, modulo, accion="leer", usuario_id=None):
+    if usuario_id:
+        up = _permisos_usuario(usuario_id).get(modulo)
+        if up:
+            return bool(up.get(f"puede_{accion}", False))
     p = permisos(rol).get(modulo)
     if not p: return False
     return bool(p.get(f"puede_{accion}", False))
@@ -124,7 +196,7 @@ def inject_permisos():
         ("visitas",     "Visitas",     "👋", "visitas",     "/visitas",     "/visitas/nuevo"),
         ("celulas",     "Informe Célula", "📋", "celulas",   "/celulas-informe", "/celulas-informe/nuevo"),
         ("reportes",    "Reportes",    "📈", "reportes",    "/reportes",    None),
-        ("usuarios",    "Usuarios",    "⚙️", "usuarios",    "/usuarios",    "/usuarios/nuevo"),
+        ("configuracion","Configuración","⚙️","configuracion","/configuracion",None),
     ]
     menu = "<a href='/'>🏠 INICIO</a>"
     for mod, nombre, icono, key, url_list, url_nuevo in modulos_menu:
@@ -139,7 +211,7 @@ def inject_permisos():
             menu += f"<a href='{url_list}?export=excel' target='_blank'>📊 Excel</a>"
             menu += f"<a href='{url_list}?export=pdf' target='_blank'>📄 PDF</a>"
         menu += "</div>"
-    return dict(perm=p, rol=rol, menu=menu, tiene_permiso=lambda m, a="leer": tiene_permiso(rol, m, a))
+    return dict(perm=p, rol=rol, menu=menu, tiene_permiso=lambda m, a="leer": tiene_permiso(rol, m, a, session.get("uid")))
 
 def to_excel(rows, headers, filename):
     wb = Workbook(); ws = wb.active; ws.title = "Reporte"
@@ -265,9 +337,16 @@ MODULOS_INFO = [
     {"key":"discipulado","nombre":"Discipulado"},{"key":"encuentros","nombre":"Encuentros"},
     {"key":"seguimiento","nombre":"Seguimiento"},{"key":"visitas","nombre":"Visitas"},
     {"key":"reportes","nombre":"Reportes"},{"key":"usuarios","nombre":"Usuarios"},
-    {"key":"celulas","nombre":"Informe Célula"},
+    {"key":"celulas","nombre":"Informe Célula"},{"key":"configuracion","nombre":"Configuración"},
 ]
 ROLES_LIST = ["SUPERADMIN","ADMIN","CONSULTA"]
+
+def obtener_roles():
+    try:
+        rows = q("SELECT nombre FROM catalogo_roles_usuario WHERE activo=true ORDER BY nombre")
+        return [r["nombre"] for r in rows] if rows else ROLES_LIST
+    except:
+        return ROLES_LIST
 
 @app.get("/usuarios")
 @login_req
@@ -279,10 +358,11 @@ def usuarios():
     for u in users:
         u["vinculo"] = u.get("h_nombre") or u.get("l_nombre") or None
     perm = permisos(session.get("rol",""))
+    roles_dyn = obtener_roles()
     perm_all = {}
-    for rl in ROLES_LIST:
+    for rl in roles_dyn:
         perm_all[rl] = permisos(rl)
-    return render_template("usuarios.html", usuarios=users, perm=perm_all, modulos=MODULOS_INFO, roles=ROLES_LIST)
+    return render_template("usuarios.html", usuarios=users, perm=perm_all, modulos=MODULOS_INFO, roles=roles_dyn)
 
 @app.get("/usuarios/nuevo")
 @login_req
@@ -380,7 +460,7 @@ def usuario_eliminar(uid):
 @permiso_req("usuarios", "editar")
 def usuario_permisos():
     f = request.form
-    for rol in ROLES_LIST:
+    for rol in obtener_roles():
         for mod in MODULOS_INFO:
             key = mod["prefix"] if "prefix" in mod else mod["key"]
             leer = f.get(f"{rol}_{key}_leer") is not None
@@ -426,7 +506,9 @@ def hermanos():
 def hermano_nuevo():
     com = q("SELECT c.id,c.nombre,r.nombre_corto AS region FROM comunas c JOIN regiones r ON r.id=c.region_id ORDER BY c.nombre")
     her = q("SELECT id,nombre_completo FROM hermanos WHERE activo ORDER BY 2")
-    return render_template("hermano_form.html", h=None, comunas=com, hermanos=her)
+    sexos = get_catalogo("catalogo_sexo")
+    estados_civil = get_catalogo("catalogo_estado_civil")
+    return render_template("hermano_form.html", h=None, comunas=com, hermanos=her, sexos=sexos, estados_civil=estados_civil)
 
 @app.post("/hermanos/nuevo")
 @login_req
@@ -453,7 +535,9 @@ def hermano_editar(hid):
     h = q("SELECT * FROM hermanos WHERE id=%s", (hid,), one=True)
     com = q("SELECT c.id,c.nombre FROM comunas c ORDER BY c.nombre")
     her = q("SELECT id,nombre_completo FROM hermanos WHERE activo AND id!=%s ORDER BY 2", (hid,))
-    return render_template("hermano_form.html", h=h, comunas=com, hermanos=her)
+    sexos = get_catalogo("catalogo_sexo")
+    estados_civil = get_catalogo("catalogo_estado_civil")
+    return render_template("hermano_form.html", h=h, comunas=com, hermanos=her, sexos=sexos, estados_civil=estados_civil)
 
 @app.post("/hermanos/<int:hid>/editar")
 @login_req
@@ -461,12 +545,47 @@ def hermano_editar(hid):
 def hermano_update(hid):
     f = request.form
     try:
-        q("""UPDATE hermanos SET nombres=%s,apellido_paterno=%s,apellido_materno=%s,correo=NULLIF(%s,''),
-            telefono=%s,direccion=%s,comuna_id=NULLIF(%s,'')::int,sexo=NULLIF(%s,''),estado_civil=NULLIF(%s,''),
-            invitado_por_id=NULLIF(%s,'')::int,invitado_por_texto=NULLIF(%s,'') WHERE id=%s""",
-          (f["nombres"], f["paterno"], f.get("materno"), f.get("correo"), f.get("telefono"),
-           f.get("direccion"), f.get("comuna") or None, f.get("sexo") or None, f.get("ecivil") or None,
-           f.get("invitado") or None, f.get("invtexto") or None, hid), commit=True)
+        act = q("SELECT * FROM hermanos WHERE id=%s", (hid,), one=True)
+        if not act: flash("No encontrado", "error"); return redirect(url_for("hermanos"))
+        # Campos de texto: si vienen vacíos y antes tenían valor, permitir vaciar algunos
+        # Para FK nullable (comuna, invitado, sexo, ecivil): "" → NULL
+        sexo_val = f.get("sexo")
+        if sexo_val == "": sexo_val = None
+        ecivil_val = f.get("ecivil")
+        if ecivil_val == "": ecivil_val = None
+        comuna_val = f.get("comuna")
+        comuna_val = int(comuna_val) if comuna_val and comuna_val.strip() else None
+        invitado_val = f.get("invitado")
+        invitado_val = int(invitado_val) if invitado_val and invitado_val.strip() else None
+        # Materno y correo pueden vaciarse
+        materno_val = f.get("materno")
+        if materno_val == "": materno_val = None
+        elif materno_val is None: materno_val = act["apellido_materno"]
+        correo_val = f.get("correo")
+        if correo_val == "": correo_val = None
+        elif not correo_val: correo_val = act["correo"]
+        # RUT: si cambió, validar y actualizar (único, formato)
+        rut_nuevo = f.get("rut","").strip()
+        if rut_nuevo:
+            rut_nuevo = limpiar_rut(rut_nuevo)
+            if rut_nuevo != act["rut"]:
+                # Validar formato y duplicado
+                if not rut_nuevo or "-" not in rut_nuevo:
+                    flash("RUT inválido: use formato 12345678-9", "error"); return redirect(url_for("hermanos"))
+                dup = q("SELECT id FROM hermanos WHERE rut=%s AND id!=%s", (rut_nuevo, hid), one=True)
+                if dup:
+                    flash(f"RUT {rut_nuevo} ya existe en otro hermano", "error"); return redirect(url_for("hermanos"))
+                q("UPDATE hermanos SET rut=%s WHERE id=%s", (rut_nuevo, hid), commit=True)
+        # Resto: si viene vacío conservar anterior, excepto los que permiten NULL
+        update_parcial("hermanos", hid, {
+            "nombres": f.get("nombres") or act["nombres"],
+            "apellido_paterno": f.get("paterno") or act["apellido_paterno"],
+            "telefono": f.get("telefono") or act["telefono"],
+            "direccion": f.get("direccion") or act["direccion"],
+        })
+        # Actualizar campos que pueden ser NULL por separado
+        q("UPDATE hermanos SET apellido_materno=%s, correo=%s, comuna_id=%s, sexo=%s, estado_civil=%s, invitado_por_id=%s, invitado_por_texto=%s WHERE id=%s",
+          (materno_val, correo_val, comuna_val, sexo_val, ecivil_val, invitado_val, f.get("invtexto") or None, hid), commit=True)
         flash("Actualizado", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("hermanos"))
@@ -478,17 +597,47 @@ def hermano_toggle(hid):
     q("UPDATE hermanos SET activo=NOT activo WHERE id=%s", (hid,), commit=True)
     return redirect(url_for("hermanos"))
 
+@app.post("/hermanos/<int:hid>/eliminar")
+@login_req
+@permiso_req("hermanos", "eliminar")
+def hermano_eliminar(hid):
+    q("DELETE FROM hermanos WHERE id=%s", (hid,), commit=True)
+    flash("Hermano eliminado", "ok")
+    return redirect(url_for("hermanos"))
+
 # ---------- LIDERES ----------
 @app.get("/lideres")
 @login_req
 def lideres():
     exp = request.args.get("export", "")
     f12 = request.args.get("f12", "")
+    texto = request.args.get("q", "")
+    fpadre = request.args.get("fpadre", "")
     where = "WHERE (%s='' OR tipo_12=%s)"
-    rows = q(f"SELECT lider, red, estado_celula, info_enviada, cantidad_celulas, discipulos_activos, es_pastor, tipo_12 FROM v_lideres_conteo {where} ORDER BY discipulos_activos DESC", (f12, f12 or None))
-    if exp == "excel": return to_excel(rows, ["lider", "red", "estado_celula", "info_enviada", "cantidad_celulas", "discipulos_activos", "es_pastor", "tipo_12"], "lideres.xlsx")
-    if exp == "pdf": return to_pdf("Lideres MCCI", rows, ["lider", "red", "tipo_12", "discipulos_activos"], "lideres.pdf")
-    return render_template("lideres.html", rows=q(f"SELECT * FROM v_lideres_conteo {where} ORDER BY discipulos_activos DESC", (f12, f12 or None)), f12=f12)
+    params = [f12, f12 or None]
+    if fpadre:
+        where += " AND l.lider_padre_id=%s"
+        params.append(int(fpadre))
+    if texto:
+        where += " AND l.lider ILIKE %s"
+        params.append(f"%{texto}%")
+    rows = q(f"SELECT * FROM v_lideres_conteo l {where} ORDER BY discipulos_activos DESC", tuple(params))
+    if exp == "excel": return to_excel(rows, ["lider", "rol_lider", "pastor_nombre", "red", "tipo_12", "estado_celula", "info_enviada", "cantidad_celulas", "discipulos_activos"], "lideres.xlsx")
+    if exp == "pdf": return to_pdf("Lideres MCCI", rows, ["lider", "rol_lider", "red", "tipo_12", "discipulos_activos"], "lideres.pdf")
+    todos = q("""SELECT l.id, h.nombre_completo AS nombre,
+        (SELECT COUNT(*) FROM lideres l2 WHERE l2.lider_padre_id=l.id AND l2.activo) AS hijos
+        FROM lideres l JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY h.nombre_completo""")
+    catalogos_l = {
+        "redes": get_catalogo("catalogo_redes"),
+        "tipo12": get_catalogo("catalogo_tipo12"),
+        "roles_lider": get_catalogo("catalogo_roles_lider"),
+        "estado_celula": get_catalogo("catalogo_estado_celula"),
+        "info_enviada": get_catalogo("catalogo_info_enviada"),
+    }
+    # Dict rol_nombre → icono para display
+    rol_iconos = {r["nombre"]: r.get("icono","—") for r in catalogos_l["roles_lider"]}
+    return render_template("lideres.html", rows=rows, f12=f12, texto=texto,
+        fpadre=int(fpadre) if fpadre else None, todos_lideres=todos, catalogos_l=catalogos_l, rol_iconos=rol_iconos)
 
 @app.get("/lideres/nuevo")
 @login_req
@@ -496,7 +645,16 @@ def lideres():
 def lider_nuevo():
     libres = q("""SELECT h.id,h.nombre_completo FROM hermanos h LEFT JOIN lideres l ON l.hermano_id=h.id
                   WHERE l.id IS NULL AND h.activo ORDER BY h.nombre_completo""")
-    return render_template("lider_form.html", libres=libres, l=None)
+    todos = q("""SELECT l.id, h.nombre_completo AS nombre, l.tipo_12 FROM lideres l
+                 JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY h.nombre_completo""")
+    catalogos_l = {
+        "redes": get_catalogo("catalogo_redes"),
+        "tipo12": get_catalogo("catalogo_tipo12"),
+        "roles_lider": get_catalogo("catalogo_roles_lider"),
+        "estado_celula": get_catalogo("catalogo_estado_celula"),
+        "info_enviada": get_catalogo("catalogo_info_enviada"),
+    }
+    return render_template("lider_form.html", libres=libres, todos_lideres=todos, l=None, catalogos_l=catalogos_l)
 
 @app.post("/lideres/nuevo")
 @login_req
@@ -504,9 +662,10 @@ def lider_nuevo():
 def lider_crear():
     f = request.form
     try:
-        q("INSERT INTO lideres(hermano_id,red,estado_celula,info_enviada,cantidad_celulas,observacion,es_pastor,tipo_12) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)",
+        rol = f.get("rol") or "NINGUNO"
+        q("INSERT INTO lideres(hermano_id,red,estado_celula,info_enviada,cantidad_celulas,observacion,es_pastor,rol_lider,tipo_12,lider_padre_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
           (f["hermano"], f["red"], f["estado"], f["info"], int(f.get("celulas") or 1), f.get("obs"),
-           f.get("es_pastor") == "on", f.get("tipo12", "NINGUNO")), commit=True)
+           rol == "PASTOR", rol, f.get("tipo12", "NINGUNO"), f.get("padre") or None), commit=True)
         flash("Líder creado", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("lideres"))
@@ -516,9 +675,46 @@ def lider_crear():
 @permiso_req("lideres", "editar")
 def lider_estado(lid):
     f = request.form
-    q("UPDATE lideres SET estado_celula=%s, info_enviada=%s, cantidad_celulas=%s, red=%s, es_pastor=%s, tipo_12=%s WHERE id=%s",
-      (f["estado"], f["info"], int(f.get("celulas") or 1), f["red"], f.get("pastor") == "on", f.get("tipo12", "NINGUNO"), lid), commit=True)
+    act = q("SELECT * FROM lideres WHERE id=%s", (lid,), one=True)
+    if not act: flash("No encontrado", "error"); return redirect(url_for("lideres"))
+    rol = f.get("rol") or "NINGUNO"
+    # Preparar valores: padre puede ser "" → NULL (quitar padre)
+    padre_raw = f.get("padre", None)
+    # Si el campo padre vino en el form, respetarlo ("" = quitar, valor = asignar)
+    # Si no vino, conservar el anterior
+    if "padre" in f:
+        padre_val = int(padre_raw) if padre_raw and padre_raw.strip() else None
+        # Update_parcial no soporta NULL directo, usamos permitir_null
+        update_parcial("lideres", lid, {
+            "estado_celula": f.get("estado") or act["estado_celula"],
+            "info_enviada": f.get("info") or act["info_enviada"],
+            "cantidad_celulas": int(f.get("celulas") or act["cantidad_celulas"]),
+            "red": f.get("red") or act["red"],
+            "rol_lider": rol,
+            "es_pastor": rol == "PASTOR",
+            "tipo_12": f.get("tipo12") or act["tipo_12"],
+        })
+        # Actualizar padre por separado para permitir NULL
+        q("UPDATE lideres SET lider_padre_id=%s WHERE id=%s", (padre_val, lid), commit=True)
+    else:
+        update_parcial("lideres", lid, {
+            "estado_celula": f.get("estado") or act["estado_celula"],
+            "info_enviada": f.get("info") or act["info_enviada"],
+            "cantidad_celulas": int(f.get("celulas") or act["cantidad_celulas"]),
+            "red": f.get("red") or act["red"],
+            "rol_lider": rol,
+            "es_pastor": rol == "PASTOR",
+            "tipo_12": f.get("tipo12") or act["tipo_12"],
+        })
     flash("Líder actualizado", "ok"); return redirect(url_for("lideres"))
+
+@app.post("/lideres/<int:lid>/eliminar")
+@login_req
+@permiso_req("lideres", "eliminar")
+def lider_eliminar(lid):
+    q("DELETE FROM lideres WHERE id=%s", (lid,), commit=True)
+    flash("Líder eliminado", "ok")
+    return redirect(url_for("lideres"))
 
 # ---------- DISCIPULADO ----------
 @app.get("/discipulado")
@@ -556,6 +752,7 @@ def disc_nuevo():
 def disc_crear():
     f = request.form
     try:
+        q("UPDATE discipulado SET fecha_fin=CURRENT_DATE WHERE hermano_id=%s AND fecha_fin IS NULL", (f["hermano"],), commit=True)
         q("INSERT INTO discipulado(hermano_id,lider_id,es_discipulo_activo,periodicidad_id,observacion) VALUES(%s,%s,%s,%s,%s)",
           (f["hermano"], f["lider"], f.get("activo") == "on", f.get("per") or None, f.get("obs")), commit=True)
         flash("Asignación creada", "ok")
@@ -567,6 +764,44 @@ def disc_crear():
 @permiso_req("discipulado", "editar")
 def disc_cerrar(did):
     q("UPDATE discipulado SET fecha_fin=CURRENT_DATE WHERE id=%s", (did,), commit=True)
+    return redirect(url_for("discipulado"))
+
+@app.get("/discipulado/<int:did>/editar")
+@login_req
+@permiso_req("discipulado", "editar")
+def disc_editar(did):
+    d = q("SELECT * FROM discipulado WHERE id=%s", (did,))
+    if not d: flash("No encontrado", "error"); return redirect(url_for("discipulado"))
+    return render_template("disc_editar.html", d=d[0],
+        hermanos=q("SELECT id,nombre_completo FROM hermanos WHERE activo ORDER BY 2"),
+        lideres=q("SELECT l.id,h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY 2"),
+        per=q("SELECT * FROM periodicidad_celula ORDER BY 1"))
+
+@app.post("/discipulado/<int:did>/editar")
+@login_req
+@permiso_req("discipulado", "editar")
+def disc_editar_guardar(did):
+    f = request.form
+    try:
+        act = q("SELECT * FROM discipulado WHERE id=%s", (did,), one=True)
+        if not act: flash("No encontrado", "error"); return redirect(url_for("discipulado"))
+        update_parcial("discipulado", did, {
+            "hermano_id": f.get("hermano") or act["hermano_id"],
+            "lider_id": f.get("lider") or act["lider_id"],
+            "es_discipulo_activo": f.get("activo") == "on" if f.get("activo") is not None else act["es_discipulo_activo"],
+            "periodicidad_id": f.get("per") or act["periodicidad_id"],
+            "observacion": f.get("obs") if f.get("obs") is not None else act["observacion"],
+        })
+        flash("Asignación modificada", "ok")
+    except Exception as e: flash(f"Error: {e}", "error")
+    return redirect(url_for("discipulado"))
+
+@app.post("/discipulado/<int:did>/eliminar")
+@login_req
+@permiso_req("discipulado", "eliminar")
+def disc_eliminar(did):
+    q("DELETE FROM discipulado WHERE id=%s", (did,), commit=True)
+    flash("Asignación eliminada", "ok")
     return redirect(url_for("discipulado"))
 
 # ---------- ENCUENTROS ----------
@@ -607,6 +842,123 @@ def enc_crear():
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("encuentros"))
 
+@app.get("/encuentros/masivo")
+@login_req
+@permiso_req("encuentros", "crear")
+def enc_masivo():
+    from datetime import date
+    sel = request.args.get("lider", "")
+    lideres = q("""SELECT l.id, h.nombre_completo AS nombre, COUNT(d.id) AS discipulos
+        FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
+        JOIN discipulado d ON d.lider_id=l.id AND d.fecha_fin IS NULL AND d.es_discipulo_activo=true
+        WHERE l.activo GROUP BY l.id, h.nombre_completo ORDER BY h.nombre_completo""")
+    discipulos = []
+    if sel:
+        discipulos = q("""SELECT h.id, h.nombre_completo,
+            (SELECT t.nombre FROM encuentro_participacion ep JOIN tipos_encuentro t ON t.id=ep.tipo_encuentro_id
+             WHERE ep.hermano_id=h.id ORDER BY ep.fecha_evento DESC LIMIT 1) AS ya_tiene,
+            (SELECT ep.estado FROM encuentro_participacion ep WHERE ep.hermano_id=h.id ORDER BY ep.fecha_evento DESC LIMIT 1) AS estado_actual
+            FROM discipulado d JOIN hermanos h ON h.id=d.hermano_id
+            WHERE d.lider_id=%s AND d.fecha_fin IS NULL AND d.es_discipulo_activo=true ORDER BY h.nombre_completo""", (sel,))
+    return render_template("enc_masivo.html", lideres=lideres, discipulos=discipulos,
+        sel_lider=int(sel) if sel else None, tipos=q("SELECT * FROM tipos_encuentro ORDER BY orden"),
+        fecha_hoy=date.today().isoformat())
+
+@app.post("/encuentros/masivo")
+@login_req
+@permiso_req("encuentros", "crear")
+def enc_masivo_guardar():
+    f = request.form
+    discs = f.getlist("disc")
+    tipo = f["tipo"]
+    estado = f["estado"]
+    fecha = f.get("fecha") or None
+    if not discs:
+        flash("Seleccioná al menos un discípulo", "error")
+        return redirect(url_for("enc_masivo", lider=f.get("lider","")))
+    count = 0
+    for hid in discs:
+        try:
+            q("""INSERT INTO encuentro_participacion(hermano_id,tipo_encuentro_id,estado,fecha_evento) VALUES(%s,%s,%s,%s)
+                 ON CONFLICT (hermano_id,tipo_encuentro_id) DO UPDATE SET estado=EXCLUDED.estado,fecha_evento=EXCLUDED.fecha_evento""",
+              (hid, tipo, estado, fecha), commit=True)
+            count += 1
+        except: pass
+    flash(f"Encuentro registrado para {count} discípulos", "ok")
+    return redirect(url_for("encuentros"))
+
+@app.get("/encuentros/guia")
+@login_req
+@permiso_req("encuentros", "leer")
+def enc_guia():
+    from datetime import date
+    sel = request.args.get("lider", "")
+    lideres = q("""SELECT l.id, h.nombre_completo AS nombre, COUNT(d.id) AS discipulos
+        FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
+        JOIN discipulado d ON d.lider_id=l.id AND d.fecha_fin IS NULL AND d.es_discipulo_activo=true
+        WHERE l.activo GROUP BY l.id, h.nombre_completo ORDER BY h.nombre_completo""")
+    tipos = q("SELECT * FROM tipos_encuentro ORDER BY orden")
+    discipulos = []
+    stats = {}
+    if sel:
+        discipulos = q("""SELECT h.id, h.nombre_completo FROM discipulado d
+            JOIN hermanos h ON h.id=d.hermano_id
+            WHERE d.lider_id=%s AND d.fecha_fin IS NULL AND d.es_discipulo_activo=true
+            ORDER BY h.nombre_completo""", (sel,))
+        for d in discipulos:
+            for t in tipos:
+                enc = q("SELECT estado FROM encuentro_participacion WHERE hermano_id=%s AND tipo_encuentro_id=%s", (d["id"], t["id"]), one=True)
+                d[f'enc_{t["id"]}'] = enc["estado"] if enc else None
+        for t in tipos:
+            ap = q("SELECT COUNT(*) AS c FROM encuentro_participacion ep JOIN discipulado d ON d.hermano_id=ep.hermano_id WHERE d.lider_id=%s AND ep.tipo_encuentro_id=%s AND ep.estado='APROBADO' AND d.fecha_fin IS NULL AND d.es_discipulo_activo=true", (sel, t["id"]), one=True)
+            stats[t["id"]] = {"aprobados": ap["c"] if ap else 0, "total": len(discipulos)}
+    return render_template("enc_guia.html", lideres=lideres, discipulos=discipulos,
+        sel_lider=int(sel) if sel else None, tipos=tipos, stats=stats)
+
+@app.post("/encuentros/guia")
+@login_req
+@permiso_req("encuentros", "editar")
+def enc_guia_guardar():
+    from datetime import date
+    f = request.form
+    sel = f.get("lider", "")
+    action = f.get("action", "")
+    if action == "masivo":
+        marcados = f.getlist("marcado")
+        estado = f.get("masivo_estado", "APROBADO")
+        fecha = date.today().isoformat()
+        count = 0
+        for m in marcados:
+            parts = m.split("|")
+            if len(parts) == 2:
+                try:
+                    q("""INSERT INTO encuentro_participacion(hermano_id,tipo_encuentro_id,estado,fecha_evento) VALUES(%s,%s,%s,%s)
+                         ON CONFLICT (hermano_id,tipo_encuentro_id) DO UPDATE SET estado=EXCLUDED.estado,fecha_evento=EXCLUDED.fecha_evento""",
+                      (int(parts[0]), int(parts[1]), estado, fecha), commit=True)
+                    count += 1
+                except: pass
+        flash(f"Actualizados {count} encuentros", "ok")
+    elif "toggle" in f:
+        parts = f["toggle"].split("|")
+        if len(parts) == 3:
+            hid, tid, estado = int(parts[0]), int(parts[1]), parts[2]
+            fecha = date.today().isoformat()
+            try:
+                q("""INSERT INTO encuentro_participacion(hermano_id,tipo_encuentro_id,estado,fecha_evento) VALUES(%s,%s,%s,%s)
+                     ON CONFLICT (hermano_id,tipo_encuentro_id) DO UPDATE SET estado=EXCLUDED.estado,fecha_evento=EXCLUDED.fecha_evento""",
+                  (hid, tid, estado, fecha), commit=True)
+                flash("Estado actualizado", "ok")
+            except Exception as e: flash(f"Error: {e}", "error")
+    return redirect(url_for("enc_guia", lider=sel))
+
+@app.post("/encuentros/<int:eid>/eliminar")
+@login_req
+@permiso_req("encuentros", "eliminar")
+def enc_eliminar(eid):
+    q("DELETE FROM encuentro_participacion WHERE id=%s", (eid,), commit=True)
+    flash("Encuentro eliminado", "ok")
+    return redirect(url_for("encuentros"))
+
 # ---------- SEGUIMIENTO DIARIO (sin célula) ----------
 @app.get("/seguimiento")
 @login_req
@@ -625,7 +977,8 @@ def seguimiento():
         LEFT JOIN hermanos h ON h.id=s.hermano_id LEFT JOIN visitas v ON v.id=s.visita_id ORDER BY s.fecha DESC LIMIT 100""")
     lideres = q("""SELECT h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
         WHERE l.activo ORDER BY h.nombre_completo""")
-    return render_template("seguimiento.html", rows=rows, visitas=visitas, total=total, lideres_sin=lideres_sin, hist=hist, lideres=lideres)
+    tipos_seg = get_catalogo("catalogo_tipo_seguimiento")
+    return render_template("seguimiento.html", rows=rows, visitas=visitas, total=total, lideres_sin=lideres_sin, hist=hist, lideres=lideres, tipos_seg=tipos_seg)
 
 @app.post("/seguimiento/<int:hid>/registrar")
 @login_req
@@ -646,6 +999,14 @@ def seg_visita_registrar(vid):
     q("UPDATE visitas SET estado='EN SEGUIMIENTO' WHERE id=%s AND estado='PENDIENTE'", (vid,), commit=True)
     flash("Seguimiento de visita registrado (pasó a EN SEGUIMIENTO)", "ok"); return redirect(url_for("seguimiento"))
 
+@app.post("/seguimiento/<int:sid>/eliminar")
+@login_req
+@permiso_req("seguimiento", "eliminar")
+def seg_eliminar(sid):
+    q("DELETE FROM seguimiento WHERE id=%s", (sid,), commit=True)
+    flash("Seguimiento eliminado", "ok")
+    return redirect(url_for("seguimiento"))
+
 # ---------- VISITAS (culto) ----------
 @app.get("/visitas")
 @login_req
@@ -660,7 +1021,9 @@ def visitas():
     if exp == "pdf": return to_pdf("Visitas MCCI", rows, ["nombre_completo", "telefono", "motivo_oracion", "estado"], "visitas.pdf")
     lideres = q("""SELECT l.id, h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
         WHERE l.activo ORDER BY h.nombre_completo""")
-    return render_template("visitas.html", rows=rows, texto=texto, fest=fest, lideres=lideres)
+    estados_visita = get_catalogo("catalogo_estado_visita")
+    tipos_seg = get_catalogo("catalogo_tipo_seguimiento")
+    return render_template("visitas.html", rows=rows, texto=texto, fest=fest, lideres=lideres, estados_visita=estados_visita, tipos_seg=tipos_seg)
 
 @app.get("/visitas/nuevo")
 @login_req
@@ -669,7 +1032,8 @@ def visita_nueva():
     return render_template("visita_form.html", v=None,
         comunas=q("SELECT id,nombre FROM comunas ORDER BY nombre"),
         hermanos=q("SELECT id,nombre_completo FROM hermanos WHERE activo ORDER BY 2"),
-        lideres=q("SELECT h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY 1"))
+        lideres=q("SELECT h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY 1"),
+        estados_visita=get_catalogo("catalogo_estado_visita"))
 
 @app.post("/visitas/nuevo")
 @login_req
@@ -689,8 +1053,16 @@ def visita_crear():
 @permiso_req("visitas", "editar")
 def visita_estado(vid):
     f = request.form
+    act = q("SELECT * FROM visitas WHERE id=%s", (vid,), one=True)
+    if not act: flash("No encontrada", "error"); return redirect(url_for("visitas"))
+    # responsable puede vaciarse → NULL
+    resp = f.get("responsable")
+    if resp == "": resp = None
+    elif resp is None: resp = act["responsable"]
+    estado_val = f.get("estado") or act["estado"]
+    obs_val = f.get("obs") if f.get("obs") is not None else act["observacion"]
     q("UPDATE visitas SET estado=%s, responsable=%s, observacion=%s WHERE id=%s",
-      (f["estado"], f.get("responsable") or None, f.get("obs"), vid), commit=True)
+      (estado_val, resp, obs_val, vid), commit=True)
     flash("Visita actualizada", "ok"); return redirect(url_for("visitas"))
 
 @app.post("/visitas/<int:vid>/integrar")
@@ -724,6 +1096,14 @@ def visita_integrar(vid):
         flash(f"Error al integrar (¿RUT duplicado?): {e}", "error")
     return redirect(url_for("visitas"))
 
+@app.post("/visitas/<int:vid>/eliminar")
+@login_req
+@permiso_req("visitas", "eliminar")
+def visita_eliminar(vid):
+    q("DELETE FROM visitas WHERE id=%s", (vid,), commit=True)
+    flash("Visita eliminada", "ok")
+    return redirect(url_for("visitas"))
+
 # ---------- INFORME CÉLULA ----------
 @app.get("/celulas-informe")
 @login_req
@@ -735,13 +1115,23 @@ def celulas_informe_lista():
         LEFT JOIN lideres l1 ON l1.id=ci.lider_id LEFT JOIN hermanos h1 ON h1.id=l1.hermano_id
         LEFT JOIN lideres l2 ON l2.id=ci.pastor_id LEFT JOIN hermanos h2 ON h2.id=l2.hermano_id
         ORDER BY ci.id DESC""")
+    sin_informe = q("""SELECT l.id, h.nombre_completo, l.red
+        FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
+        WHERE l.activo AND l.estado_celula != 'SIN CELULA'
+        AND l.id NOT IN (
+            SELECT ci.lider_id FROM celulas_informe ci
+            WHERE EXTRACT(MONTH FROM ci.fecha) = EXTRACT(MONTH FROM CURRENT_DATE)
+            AND EXTRACT(YEAR FROM ci.fecha) = EXTRACT(YEAR FROM CURRENT_DATE)
+            AND ci.lider_id IS NOT NULL
+        )
+        ORDER BY h.nombre_completo""")
     if exp == "excel":
         return to_excel(rows, ["lider_nombre","pastor_nombre","fecha","mes","red","comuna",
             "horario","realizado","discipulos_asistieron","ofrenda","tipo_ofrenda"], "informe_celulas.xlsx")
     if exp == "pdf":
         return to_pdf("Informe Células MCCI", rows, ["lider_nombre","pastor_nombre","fecha","mes",
             "red","realizado","ofrenda"], "informe_celulas.pdf")
-    return render_template("celulas_informe.html", rows=rows)
+    return render_template("celulas_informe.html", rows=rows, sin_informe=sin_informe)
 
 @app.get("/celulas-informe/nuevo")
 @login_req
@@ -759,7 +1149,7 @@ def celulas_informe_crear():
     f = request.form
     try:
         q("""INSERT INTO celulas_informe(lider_id,pastor_id,fecha,mes,red,direccion,comuna,
-            horario,realizado,justificacion,discipulos_asistieron,discipulos_no_asistieron,
+            horario,realizo,justificacion,discipulos_asistieron,discipulos_no_asistieron,
             ofrenda,tipo_ofrenda,modalidad)
             VALUES(NULLIF(%s,'')::int,NULLIF(%s,'')::int,NULLIF(%s,'')::date,%s,%s,%s,%s,%s,
             %s,%s,%s,%s,NULLIF(%s,'')::decimal,%s,%s)""",
@@ -835,7 +1225,7 @@ def reportes():
         WHERE d.fecha_fin IS NULL GROUP BY 1 ORDER BY 2 DESC""")
     r["por_12"] = q("SELECT tipo_12, COUNT(*) AS c, SUM(CASE WHEN es_pastor THEN 1 ELSE 0 END) AS pastores FROM lideres WHERE activo GROUP BY 1 ORDER BY 2 DESC")
     # Resumen único por líder + fila TOTAL (con encuentros desglosados por etapa)
-    r["resumen"] = q("""SELECT v.lider, v.red, v.tipo_12, v.es_pastor, v.estado_celula, v.cantidad_celulas,
+    r["resumen"] = q("""SELECT v.lider, v.red, v.tipo_12, v.rol_lider, v.estado_celula, v.cantidad_celulas,
         v.total_asignados_vigentes, v.discipulos_activos,
         COALESCE(e.aprob_lider,0) AS enc_lider,
         COALESCE(s.tremendo,0) AS d_tremendo, COALESCE(s.fruto,0) AS d_fruto,
@@ -869,7 +1259,7 @@ def reportes():
         "sin_celula": ("Sin celula", ["nombre_completo", "red"]), "pendientes": ("Pendientes", ["nombre_completo", "etapa", "fecha"]),
         "ruta_incompleta": ("Ruta incompleta", ["nombre_completo"]), "periodicidad": ("Periodicidad", ["nombre", "c"]),
         "por_12": ("Por Tipo 12", ["tipo_12", "c", "pastores"]),
-        "resumen": ("Resumen por lider (unico + total)", ["lider", "red", "tipo_12", "es_pastor", "estado_celula", "discipulos_activos", "enc_lider", "d_tremendo", "d_fruto", "d_reenc", "d_crec", "d_lid", "disc_enc_aprob"])}
+        "resumen": ("Resumen por lider (unico + total)", ["lider", "red", "tipo_12", "rol_lider", "estado_celula", "discipulos_activos", "enc_lider", "d_tremendo", "d_fruto", "d_reenc", "d_crec", "d_lid", "disc_enc_aprob"])}
     if exp in ("excel", "pdf"):
         if ver == "todos":
             all_rows = []
@@ -912,6 +1302,236 @@ def api_hermanos():
     if "uid" not in session: abort(401)
     texto = f"%{request.args.get('q','')}%"
     return jsonify(q("SELECT * FROM v_hermanos_completo WHERE nombre_completo ILIKE %s LIMIT 100", (texto,)))
+
+# ---------- CONFIGURACION ----------
+CATALOGOS = [
+    {"key":"redes","nombre":"Redes","icon":"🔴","tabla":"catalogo_redes","tiene_orden":False},
+    {"key":"tipo12","nombre":"Tipo 12","icon":"🔢","tabla":"catalogo_tipo12","tiene_orden":False},
+    {"key":"meses","nombre":"Meses","icon":"📅","tabla":"catalogo_meses","tiene_orden":True},
+    {"key":"etapas","nombre":"Etapas Encuentro","icon":"📖","tabla":"tipos_encuentro","tiene_orden":True},
+    {"key":"periodicidad","nombre":"Periodicidad","icon":"🔁","tabla":"periodicidad_celula","tiene_orden":False},
+    {"key":"roles_lider","nombre":"Roles Líder","icon":"👤","tabla":"catalogo_roles_lider","tiene_orden":False},
+    {"key":"estado_civil","nombre":"Estado Civil","icon":"💍","tabla":"catalogo_estado_civil","tiene_orden":False},
+    {"key":"sexo","nombre":"Sexo","icon":"⚧","tabla":"catalogo_sexo","tiene_orden":False},
+    {"key":"estado_celula","nombre":"Estado Célula","icon":"🏠","tabla":"catalogo_estado_celula","tiene_orden":False},
+    {"key":"info_enviada","nombre":"Info Enviada","icon":"📬","tabla":"catalogo_info_enviada","tiene_orden":False},
+    {"key":"estado_visita","nombre":"Estado Visita","icon":"🙋","tabla":"catalogo_estado_visita","tiene_orden":False},
+    {"key":"tipo_seguimiento","nombre":"Tipo Seguimiento","icon":"📞","tabla":"catalogo_tipo_seguimiento","tiene_orden":False},
+    {"key":"roles_usuario","nombre":"Roles de Usuario","icon":"🛡️","tabla":"catalogo_roles_usuario","tiene_orden":False},
+]
+
+@app.get("/configuracion")
+@login_req
+@permiso_req("usuarios", "leer")
+def configuracion():
+    cats = []
+    for cat in CATALOGOS:
+        cols = ["id","nombre","activo"]
+        if cat["tiene_orden"]: cols.append("orden")
+        if cat["tabla"] == "catalogo_sexo": cols = ["id","codigo","nombre","activo"]
+        elif cat["tabla"] == "catalogo_roles_lider": cols = ["id","nombre","icono","activo"]
+        order = "orden, nombre" if cat["tiene_orden"] else "nombre"
+        items = q(f"SELECT {','.join(cols)} FROM {cat['tabla']} ORDER BY {order}")
+        cats.append({**cat, "valores": items})
+    users = q("""SELECT u.*, h.nombre_completo AS h_nombre, h2.nombre_completo AS l_nombre
+        FROM usuarios u LEFT JOIN hermanos h ON h.id=u.hermano_id
+        LEFT JOIN lideres l ON l.id=u.lider_id LEFT JOIN hermanos h2 ON h2.id=l.hermano_id
+        ORDER BY u.rol, u.username""")
+    for u in users:
+        u["vinculo"] = u.get("h_nombre") or u.get("l_nombre") or None
+    perm_all = {}
+    for rl in obtener_roles():
+        perm_all[rl] = {}
+        for mod in MODULOS_INFO:
+            perm_all[rl][mod["key"]] = {}
+            for acc in ("leer","crear","editar","eliminar","exportar"):
+                if rl == "SUPERADMIN":
+                    perm_all[rl][mod["key"]][acc] = True
+                else:
+                    perm_all[rl][mod["key"]][acc] = tiene_permiso(rl, mod["key"], acc)
+    lideres = q("""SELECT l.id, h.nombre_completo, l.red FROM lideres l
+        JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY h.nombre_completo""")
+    user_perms = {}
+    for u in users:
+        uid = u["id"]
+        up = q("SELECT modulo, puede_leer, puede_crear, puede_editar, puede_eliminar, puede_exportar FROM usuario_permisos WHERE usuario_id=%s", (uid,))
+        user_perms[uid] = {r["modulo"]: r for r in up}
+    return render_template("configuracion.html", catalogos=cats, usuarios=users, perm_all=perm_all, user_perms=user_perms, roles=obtener_roles(), modulos=MODULOS_INFO, lideres=lideres)
+
+@app.post("/configuracion")
+@login_req
+@permiso_req("usuarios", "editar")
+def configuracion_accion():
+    f = request.form
+    tabla = f.get("catalogo","")
+    accion = f.get("accion","")
+    item_id = f.get("item_id")
+    nombre = f.get("nombre","").strip()
+    codigo = f.get("codigo","").strip()
+    orden = f.get("orden")
+
+    try:
+        if tabla == "__usuarios__":
+            if accion == "crear_usuario":
+                username = f.get("username","").strip()
+                password = f.get("password","").strip()
+                rol = f.get("rol","CONSULTA")
+                vinculo_id = f.get("vinculo_id")
+                if not username or not password:
+                    flash("Usuario y contraseña requeridos", "error")
+                else:
+                    from werkzeug.security import generate_password_hash
+                    lider_id = int(vinculo_id) if vinculo_id else None
+                    hermano_id = None
+                    if lider_id:
+                        ex = q("SELECT hermano_id FROM lideres WHERE id=%s", (lider_id,), one=True)
+                        if ex: hermano_id = ex["hermano_id"]
+                    q("INSERT INTO usuarios (username,password_hash,rol,hermano_id,lider_id) VALUES (%s,%s,%s,%s,%s)",
+                      (username, generate_password_hash(password), rol, hermano_id, lider_id), commit=True)
+                    flash(f"Usuario '{username}' creado", "ok")
+
+            elif accion == "toggle_usuario" and item_id:
+                q("UPDATE usuarios SET activo = NOT activo WHERE id=%s", (item_id,), commit=True)
+                flash("Estado actualizado", "ok")
+
+            elif accion == "eliminar_usuario" and item_id:
+                q("DELETE FROM usuarios WHERE id=%s", (item_id,), commit=True)
+                flash("Usuario eliminado", "ok")
+
+            elif accion == "editar_usuario" and item_id:
+                nuevo_rol = f.get("nuevo_rol")
+                nuevo_vinculo = f.get("nuevo_vinculo")
+                updates = []
+                params = []
+                if nuevo_rol:
+                    updates.append("rol=%s")
+                    params.append(nuevo_rol)
+                if nuevo_vinculo is not None:
+                    lid = int(nuevo_vinculo) if nuevo_vinculo else None
+                    hid = None
+                    if lid:
+                        ex = q("SELECT hermano_id FROM lideres WHERE id=%s", (lid,), one=True)
+                        if ex: hid = ex["hermano_id"]
+                    updates.append("lider_id=%s")
+                    params.append(lid)
+                    updates.append("hermano_id=%s")
+                    params.append(hid)
+                if updates:
+                    params.append(item_id)
+                    q(f"UPDATE usuarios SET {','.join(updates)} WHERE id=%s", tuple(params), commit=True)
+                    flash("Usuario actualizado", "ok")
+
+            elif accion == "guardar_permisos" and item_id:
+                user_rol = f.get("user_rol","")
+                if user_rol == "SUPERADMIN":
+                    flash("No se pueden editar permisos de SUPERADMIN", "error")
+                else:
+                    q("DELETE FROM roles_permisos WHERE rol=%s", (user_rol,), commit=True)
+                    for mod in MODULOS_INFO:
+                        leer = f"perm_{mod['key']}_leer" in f
+                        crear = f"perm_{mod['key']}_crear" in f
+                        editar = f"perm_{mod['key']}_editar" in f
+                        eliminar = f"perm_{mod['key']}_eliminar" in f
+                        exportar = f"perm_{mod['key']}_exportar" in f
+                        if leer or crear or editar or eliminar or exportar:
+                            q("INSERT INTO roles_permisos (rol,modulo,puede_leer,puede_crear,puede_editar,puede_eliminar,puede_exportar) VALUES(%s,%s,%s,%s,%s,%s,%s)",
+                              (user_rol, mod["key"], leer, crear, editar, eliminar, exportar), commit=True)
+                    flash(f"Permisos de {user_rol} actualizados", "ok")
+
+            elif accion == "guardar_permisos_usuario" and item_id:
+                user_id = item_id
+                q("DELETE FROM usuario_permisos WHERE usuario_id=%s", (user_id,), commit=True)
+                for mod in MODULOS_INFO:
+                    leer = f"uperm_{mod['key']}_leer" in f
+                    crear = f"uperm_{mod['key']}_crear" in f
+                    editar = f"uperm_{mod['key']}_editar" in f
+                    eliminar = f"uperm_{mod['key']}_eliminar" in f
+                    exportar = f"uperm_{mod['key']}_exportar" in f
+                    if leer or crear or editar or eliminar or exportar:
+                        q("INSERT INTO usuario_permisos (usuario_id,modulo,puede_leer,puede_crear,puede_editar,puede_eliminar,puede_exportar) VALUES(%s,%s,%s,%s,%s,%s,%s)",
+                          (user_id, mod["key"], leer, crear, editar, eliminar, exportar), commit=True)
+                flash("Permisos individuales actualizados", "ok")
+
+        else:
+            tablas_validas = [c["tabla"] for c in CATALOGOS]
+            if tabla not in tablas_validas:
+                flash("Catálogo no válido", "error")
+                return redirect(url_for("configuracion"))
+
+            if accion == "crear" and nombre:
+                if tabla == "catalogo_sexo":
+                    q(f"INSERT INTO {tabla} (codigo, nombre) VALUES (%s, %s)", (codigo.upper(), nombre.upper()), commit=True)
+                elif tabla == "tipos_encuentro":
+                    max_ord = q(f"SELECT COALESCE(MAX(orden),0)+1 AS m FROM {tabla}", one=True)["m"]
+                    q(f"INSERT INTO {tabla} (nombre, orden) VALUES (%s, %s)", (nombre.upper(), int(orden) if orden else max_ord), commit=True)
+                elif tabla == "periodicidad_celula":
+                    q(f"INSERT INTO {tabla} (nombre, intervalo_dias, descripcion) VALUES (%s, 30, %s)", (nombre.upper(), nombre), commit=True)
+                elif tabla == "catalogo_roles_lider":
+                    icono = f.get("icono","").strip() or "—"
+                    q(f"INSERT INTO {tabla} (nombre, icono) VALUES (%s, %s)", (nombre.upper(), icono), commit=True)
+                else:
+                    q(f"INSERT INTO {tabla} (nombre) VALUES (%s)", (nombre.upper(),), commit=True)
+                flash(f"Valor '{nombre}' agregado", "ok")
+
+            elif accion == "toggle" and item_id:
+                q(f"UPDATE {tabla} SET activo = NOT activo WHERE id=%s", (item_id,), commit=True)
+                flash("Estado actualizado", "ok")
+
+            elif accion == "eliminar" and item_id:
+                if tabla in ("tipos_encuentro", "periodicidad_celula"):
+                    q(f"UPDATE {tabla} SET activo=false WHERE id=%s", (item_id,), commit=True)
+                    flash("Desactivado (no se puede eliminar por relaciones)", "ok")
+                else:
+                    # Si el valor está en uso, poner "NINGUNO" antes de eliminar
+                    try:
+                        fallback_info = CATALOGO_FALLBACK.get(tabla)
+                        if fallback_info:
+                            # Obtener nombre del valor a eliminar
+                            val_row = q(f"SELECT nombre FROM {tabla} WHERE id=%s", (item_id,), one=True)
+                            if val_row:
+                                val_nombre = val_row["nombre"]
+                                # Para catalogo_sexo el nombre es descriptivo pero el valor real es codigo
+                                if tabla == "catalogo_sexo":
+                                    val_nombre = val_row.get("codigo", val_row["nombre"])
+                                    # sexo usa codigo M/F
+                                    for t, col, default in fallback_info:
+                                        cnt = q(f"SELECT COUNT(*) AS c FROM {t} WHERE {col}=%s", (val_nombre,), one=True)
+                                        if cnt and cnt["c"] > 0:
+                                            if default is None:
+                                                q(f"UPDATE {t} SET {col}=NULL WHERE {col}=%s", (val_nombre,), commit=True)
+                                            else:
+                                                q(f"UPDATE {t} SET {col}=%s WHERE {col}=%s", (default, val_nombre), commit=True)
+                                else:
+                                    for t, col, default in fallback_info:
+                                        cnt = q(f"SELECT COUNT(*) AS c FROM {t} WHERE {col}=%s", (val_nombre,), one=True)
+                                        if cnt and cnt["c"] > 0:
+                                            if default is None:
+                                                q(f"UPDATE {t} SET {col}=NULL WHERE {col}=%s", (val_nombre,), commit=True)
+                                            else:
+                                                q(f"UPDATE {t} SET {col}=%s WHERE {col}=%s", (default, val_nombre), commit=True)
+                                            flash(f"{cnt['c']} registro(s) con '{val_nombre}' cambiados a '{default or 'Ninguno'}'", "ok")
+                    except Exception as e:
+                        print(f"Fallback eliminar catalogo: {e}")
+                    q(f"DELETE FROM {tabla} WHERE id=%s", (item_id,), commit=True)
+                    flash("Eliminado", "ok")
+
+            elif accion == "editar_icono" and item_id:
+                nuevo_icono = f.get("icono","").strip() or "—"
+                q(f"UPDATE {tabla} SET icono=%s WHERE id=%s", (nuevo_icono, item_id), commit=True)
+                flash("Icono actualizado", "ok")
+
+            elif accion == "renombrar" and item_id and nombre:
+                q(f"UPDATE {tabla} SET nombre=%s WHERE id=%s", (nombre.upper(), item_id), commit=True)
+                flash("Renombrado", "ok")
+
+    except Exception as e:
+        msg = str(e)
+        if "duplicate key" in msg or "llave duplicada" in msg:
+            flash(f"'{nombre}' ya existe en este catálogo", "error")
+        else:
+            flash(f"Error: {e}", "error")
+
+    return redirect(url_for("configuracion"))
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=False)

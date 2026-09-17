@@ -1,26 +1,43 @@
 {% extends "base.html" %}{% block b %}
 <div class="card p-3"><h4>🙋 Líderes <small class="text-muted">Consultar / Modificar</small></h4>
-<details class="alert alert-info"><summary><b>❓ Ayuda: ¿para qué sirve cada campo?</b> (clic para ver)</summary>
-<ul class="mb-0"><li><b>Líder:</b> hermano que dirige. Un líder ES un hermano (relación 1:1).</li>
-<li><b>Red:</b> HOMBRES / MUJERES / JOVENES / MIXTO. Viene de tu planilla columna RED.</li>
-<li><b>⭐ Pastor:</b> marca Sí si es pastor ordenado. Se usa en reportes Por Tipo 12.</li>
-<li><b>Tipo 12:</b> 12 PASTORES / 12 APOSTOL / 12 JOVENES / NINGUNO. Cobertura G12.</li>
-<li><b>Célula (editable):</b> CELULA ACTIVA = tiene célula funcionando · SIN CELULA = no tiene (entra a Seguimiento) · EN FORMACION = abriéndola.</li>
-<li><b>Info:</b> SI = información enviada · EN CONSULTA = pendiente (columna INFORMACION ENVIADA de tu planilla).</li>
-<li><b>Células:</b> cuántas células dirige (número).</li>
-<li><b>Activos:</b> discípulos vigentes activos (calculado solo, no se digita).</li>
-<li><b>💾 Modificar:</b> guarda Red + Tipo 12 + Pastor + Célula + Info + Células de esa fila.</li></ul></details>
-<form class="row g-2 mb-2" method="get"><div class="col"><select class="form-select" name="f12" onchange="this.form.submit()"><option value="">Todos los 12</option><option value="12 PASTORES" {% if f12=='12 PASTORES' %}selected{% endif %}>12 PASTORES</option><option value="12 APOSTOL" {% if f12=='12 APOSTOL' %}selected{% endif %}>12 APOSTOL</option><option value="12 JOVENES" {% if f12=='12 JOVENES' %}selected{% endif %}>12 JOVENES</option><option value="NINGUNO" {% if f12=='NINGUNO' %}selected{% endif %}>NINGUNO</option></select></div>
-<div class="col-auto"><a class="btn btn-success" href="/lideres/nuevo">➕ Ingresar</a> <a class="btn btn-outline-success" href="/lideres?export=excel&f12={{f12}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/lideres?export=pdf&f12={{f12}}" target="_blank">PDF</a></div></form>
-<div style="overflow-x:auto"><table class="table table-striped"><tr><th title="Nombre del líder">Líder</th><th title="Red: grupo que lidera">Red</th><th title="¿Es pastor?">⭐ Pastor</th><th title="Cobertura de los 12">Tipo 12</th><th title="¿Tiene célula activa? EDITABLE">Célula ✏️</th><th title="Información enviada">Info ✏️</th><th title="Cantidad de células">N° ✏️</th><th>Activos</th><th>Modificar</th></tr>
-{% for l in rows %}<tr><td>{{l.lider}}</td><td><span class="badge bg-primary">{{l.red}}</span></td>
-<td>{% if l.es_pastor %}⭐ Sí{% else %}No{% endif %}</td><td><span class="badge badge-12 text-white">{{l.tipo_12}}</span></td>
-<td>{{l.estado_celula}}</td><td>{{l.info_enviada}}</td><td>{{l.cantidad_celulas}}</td><td><b>{{l.discipulos_activos}}</b></td>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
+<li><b>Rol:</b> ⭐ Pastor = pastoral · 🔻 Apóstol = cobertura apostólica · 👤 Líder = tiene célula · — Ninguno.</li>
+<li><b>Red:</b> valores configurables en ⚙️ Configuración → Redes.</li>
+<li><b>Tipo 12:</b> valores configurables en ⚙️ Configuración → Tipo 12.</li>
+<li><b>Padre:</b> pastor/líder al que reporta (jerarquía G12). Selecciona "— Sin padre" para quitar.</li>
+<li><b>Filtrar por Padre:</b> ver solo los hijos de un líder específico.</li></ul></details>
+<form class="row g-2 mb-2" method="get">
+<div class="col"><input class="form-control" name="q" value="{{texto}}" placeholder="Buscar líder..." title="Filtra por nombre"></div>
+<div class="col-md-2"><select class="form-select" name="f12" onchange="this.form.submit()" title="Filtra por Tipo 12"><option value="">Todos los 12</option>{% if catalogos_l and catalogos_l.tipo12 %}{% for t in catalogos_l.tipo12 %}<option value="{{t.nombre}}" {% if f12==t.nombre %}selected{% endif %}>{{t.nombre}}</option>{% endfor %}{% else %}<option value="12 PASTORES" {% if f12=='12 PASTORES' %}selected{% endif %}>12 PASTORES</option><option value="12 APOSTOL" {% if f12=='12 APOSTOL' %}selected{% endif %}>12 APOSTOL</option><option value="12 JOVENES" {% if f12=='12 JOVENES' %}selected{% endif %}>12 JOVENES</option><option value="NINGUNO" {% if f12=='NINGUNO' %}selected{% endif %}>NINGUNO</option>{% endif %}</select></div>
+<div class="col-md-3"><select class="form-select" name="fpadre" onchange="this.form.submit()" title="Filtra por líder padre"><option value="">Todos los padres</option>{% for p in todos_lideres %}<option value="{{p.id}}" {% if fpadre==p.id %}selected{% endif %}>{{p.nombre}} (hijos: {{p.hijos}})</option>{% endfor %}</select></div>
+<div class="col-auto"><button class="btn btn-primary">🔍 Consultar</button> {% if tiene_permiso('lideres','crear') %}<a class="btn btn-success" href="/lideres/nuevo">➕ Ingresar</a>{% endif %} <a class="btn btn-outline-success" href="/lideres?export=excel&f12={{f12}}&fpadre={{fpadre}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/lideres?export=pdf&f12={{f12}}&fpadre={{fpadre}}" target="_blank">PDF</a></div></form>
+<div style="overflow-x:auto"><table class="table table-striped"><tr>
+<th title="Nombre del líder">Líder</th>
+<th title="Rol del líder">Rol</th>
+<th title="Pastor/Líder al que reporta">Padre</th>
+<th title="Red: grupo que lidera">Red</th>
+<th title="Cobertura de los 12">Tipo 12</th>
+<th title="Célula">Célula</th>
+<th title="Info enviada">Info</th>
+<th title="N° células">N°</th>
+<th title="Discípulos activos">Activos</th>
+{% if tiene_permiso('lideres','editar') %}<th>Modificar</th>{% endif %}</tr>
+{% for l in rows %}<tr class="fila-lider" data-nombre="{{l.lider|lower}}" data-padre="{{l.lider_padre_id or ''}}">
+<td><b>{{l.lider}}</b></td>
+<td><span style="font-size:1.2em" title="{{l.rol_lider or 'Ninguno'}}">{{ rol_iconos.get(l.rol_lider, '—') if rol_iconos else '—' }}</span></td>
+<td>{{l.pastor_nombre or '-'}}</td>
+<td><span class="badge bg-primary">{{l.red or '—'}}</span></td>
+<td><span class="badge badge-12 text-white">{{l.tipo_12 or '—'}}</span></td>
+<td>{{l.estado_celula or '—'}}</td><td>{{l.info_enviada or '—'}}</td><td>{{l.cantidad_celulas}}</td><td><b>{{l.discipulos_activos}}</b></td>
+{% if tiene_permiso('lideres','editar') %}
 <td><form method="post" action="/lideres/{{l.lider_id}}/estado" class="d-flex gap-1 flex-wrap">
-<select name="red" class="form-select form-select-sm" title="Red"><option>{{l.red}}</option><option>HOMBRES</option><option>MUJERES</option><option>JOVENES</option><option>MIXTO</option></select>
-<select name="tipo12" class="form-select form-select-sm" title="Tipo 12"><option>{{l.tipo_12}}</option><option>12 PASTORES</option><option>12 APOSTOL</option><option>12 JOVENES</option><option>NINGUNO</option></select>
-<select name="pastor" class="form-select form-select-sm" title="¿Es pastor?"><option value="on" {% if l.es_pastor %}selected{% endif %}>Pastor Sí</option><option value="" {% if not l.es_pastor %}selected{% endif %}>Pastor No</option></select>
-<select name="estado" class="form-select form-select-sm" title="¿Está en célula?"><option>{{l.estado_celula}}</option><option>CELULA ACTIVA</option><option>SIN CELULA</option><option>EN FORMACION</option></select>
-<select name="info" class="form-select form-select-sm" title="Información enviada"><option>{{l.info_enviada}}</option><option>SI</option><option>EN CONSULTA</option><option>NO</option></select>
+<select name="rol" class="form-select form-select-sm" title="Rol"><option value="NINGUNO" {% if not l.rol_lider or l.rol_lider=='NINGUNO' %}selected{% endif %}>— Ninguno</option>{% if catalogos_l and catalogos_l.roles_lider %}{% for r in catalogos_l.roles_lider %}{% if r.nombre != 'NINGUNO' %}<option value="{{r.nombre}}" {% if l.rol_lider==r.nombre %}selected{% endif %}>{{r.icono or '—'}} {{r.nombre}}</option>{% endif %}{% endfor %}{% else %}<option value="PASTOR" {% if l.rol_lider=='PASTOR' %}selected{% endif %}>⭐ Pastor</option><option value="APOSTOL" {% if l.rol_lider=='APOSTOL' %}selected{% endif %}>🔻 Apóstol</option><option value="LIDER" {% if l.rol_lider=='LIDER' %}selected{% endif %}>👤 Líder</option>{% endif %}</select>
+<select name="red" class="form-select form-select-sm" title="Red">{% if catalogos_l and catalogos_l.redes %}{% for rd in catalogos_l.redes %}<option {% if l.red==rd.nombre %}selected{% endif %}>{{rd.nombre}}</option>{% endfor %}{% else %}<option {% if l.red=='HOMBRES' %}selected{% endif %}>HOMBRES</option><option {% if l.red=='MUJERES' %}selected{% endif %}>MUJERES</option><option {% if l.red=='JOVENES' %}selected{% endif %}>JOVENES</option><option {% if l.red=='MIXTO' %}selected{% endif %}>MIXTO</option>{% endif %}</select>
+<select name="tipo12" class="form-select form-select-sm" title="Tipo 12">{% if catalogos_l and catalogos_l.tipo12 %}{% for t in catalogos_l.tipo12 %}<option {% if l.tipo_12==t.nombre %}selected{% endif %}>{{t.nombre}}</option>{% endfor %}{% else %}<option {% if l.tipo_12=='NINGUNO' %}selected{% endif %}>NINGUNO</option><option {% if l.tipo_12=='12 PASTORES' %}selected{% endif %}>12 PASTORES</option><option {% if l.tipo_12=='12 APOSTOL' %}selected{% endif %}>12 APOSTOL</option><option {% if l.tipo_12=='12 JOVENES' %}selected{% endif %}>12 JOVENES</option>{% endif %}</select>
+<select name="padre" class="form-select form-select-sm" title="Líder padre"><option value="">— Sin padre</option>{% for p in todos_lideres %}<option value="{{p.id}}" {% if l.lider_padre_id==p.id %}selected{% endif %}>{{p.nombre}}</option>{% endfor %}</select>
+<select name="estado" class="form-select form-select-sm" title="Célula">{% if catalogos_l and catalogos_l.estado_celula %}{% for ec in catalogos_l.estado_celula %}<option {% if l.estado_celula==ec.nombre %}selected{% endif %}>{{ec.nombre}}</option>{% endfor %}{% else %}<option {% if l.estado_celula=='CELULA ACTIVA' %}selected{% endif %}>CELULA ACTIVA</option><option {% if l.estado_celula=='SIN CELULA' %}selected{% endif %}>SIN CELULA</option><option {% if l.estado_celula=='EN FORMACION' %}selected{% endif %}>EN FORMACION</option>{% endif %}</select>
+<select name="info" class="form-select form-select-sm" title="Info">{% if catalogos_l and catalogos_l.info_enviada %}{% for ie in catalogos_l.info_enviada %}<option {% if l.info_enviada==ie.nombre %}selected{% endif %}>{{ie.nombre}}</option>{% endfor %}{% else %}<option {% if l.info_enviada=='SI' %}selected{% endif %}>SI</option><option {% if l.info_enviada=='EN CONSULTA' %}selected{% endif %}>EN CONSULTA</option><option {% if l.info_enviada=='NO' %}selected{% endif %}>NO</option>{% endif %}</select>
 <input name="celulas" size=2 value="{{l.cantidad_celulas}}" class="form-control form-control-sm" title="N° células" style="width:50px">
-<button class="btn btn-sm btn-primary" title="Guardar cambios">💾</button></form></td></tr>{% endfor %}</table></div></div>{% endblock %}
+<button class="btn btn-sm btn-primary" title="Guardar">💾</button></form>{% endif %}
+{% if tiene_permiso('lideres','eliminar') %}<form method="post" action="/lideres/{{l.lider_id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar líder?')"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
+</td></tr>{% endfor %}</table></div></div>{% endblock %}

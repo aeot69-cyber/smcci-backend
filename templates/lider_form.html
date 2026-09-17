@@ -1,8 +1,9 @@
 {% extends "base.html" %}{% block b %}<div class="card p-4 col-md-6"><h4>➕ Nuevo Líder</h4>
 <form method="post">Hermano:<select class="form-select" name="hermano">{% for h in libres %}<option value="{{h.id}}">{{h.nombre_completo}}</option>{% endfor %}</select><br>
-Red:<select class="form-select" name="red"><option>HOMBRES</option><option>MUJERES</option><option>JOVENES</option><option>MIXTO</option></select><br>
-<label class="mt-2"><input type="checkbox" name="es_pastor"> ⭐ ¿Es Pastor?</label><br>
-Tipo 12:<select class="form-select" name="tipo12"><option>NINGUNO</option><option>12 PASTORES</option><option>12 APOSTOL</option><option>12 JOVENES</option></select><br>
-Estado:<select class="form-select" name="estado"><option>CELULA ACTIVA</option><option>SIN CELULA</option><option>EN FORMACION</option></select><br>
-Info:<select class="form-select" name="info"><option>SI</option><option>EN CONSULTA</option><option>NO</option></select><br>
+Rol:<select class="form-select" name="rol">{% if catalogos_l and catalogos_l.roles_lider %}{% for r in catalogos_l.roles_lider %}<option value="{{r.nombre}}">{{r.icono or '—'}} {{r.nombre}}</option>{% endfor %}{% else %}<option value="NINGUNO">— Ninguno</option><option value="PASTOR">⭐ Pastor</option><option value="APOSTOL">🔻 Apóstol</option><option value="LIDER">👤 Líder</option>{% endif %}</select><br>
+Red:<select class="form-select" name="red">{% if catalogos_l and catalogos_l.redes %}{% for rd in catalogos_l.redes %}<option>{{rd.nombre}}</option>{% endfor %}{% else %}<option>HOMBRES</option><option>MUJERES</option><option>JOVENES</option><option>MIXTO</option>{% endif %}</select><br>
+Tipo 12:<select class="form-select" name="tipo12">{% if catalogos_l and catalogos_l.tipo12 %}{% for t in catalogos_l.tipo12 %}<option>{{t.nombre}}</option>{% endfor %}{% else %}<option>NINGUNO</option><option>12 PASTORES</option><option>12 APOSTOL</option><option>12 JOVENES</option>{% endif %}</select><br>
+Pastor/Líder Padre:<select class="form-select" name="padre"><option value="">-- Sin asignar --</option>{% for p in todos_lideres %}<option value="{{p.id}}">{{p.nombre}} ({{p.tipo_12}})</option>{% endfor %}</select><br>
+Estado:<select class="form-select" name="estado">{% if catalogos_l and catalogos_l.estado_celula %}{% for ec in catalogos_l.estado_celula %}<option>{{ec.nombre}}</option>{% endfor %}{% else %}<option>CELULA ACTIVA</option><option>SIN CELULA</option><option>EN FORMACION</option>{% endif %}</select><br>
+Info:<select class="form-select" name="info">{% if catalogos_l and catalogos_l.info_enviada %}{% for ie in catalogos_l.info_enviada %}<option>{{ie.nombre}}</option>{% endfor %}{% else %}<option>SI</option><option>EN CONSULTA</option><option>NO</option>{% endif %}</select><br>
 Células:<input class="form-control" name="celulas" value="1"><br>Obs:<input class="form-control" name="obs"><br><button class="btn btn-success">Guardar</button></form></div>{% endblock %}

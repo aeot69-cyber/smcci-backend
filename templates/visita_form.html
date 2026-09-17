@@ -9,7 +9,7 @@
 <div class="col-md-6">Invitado por (hermano)<select class="form-select" name="invitado"><option value="">--</option>{% for h in hermanos %}<option value="{{h.id}}">{{h.nombre_completo}}</option>{% endfor %}</select></div>
 <div class="col-md-6">Invitado por (externo)<input class="form-control" name="invtexto" placeholder="Nombre externo"></div>
 <div class="col-md-4">Fecha visita<input class="form-control" type="date" name="fecha"></div>
-<div class="col-md-4">Estado<select class="form-select" name="estado"><option>PENDIENTE</option><option>EN SEGUIMIENTO</option><option>INTEGRADO</option><option>NO VOLVIO</option></select></div>
+<div class="col-md-4">Estado<select class="form-select" name="estado">{% if estados_visita %}{% for ev in estados_visita %}<option>{{ev.nombre}}</option>{% endfor %}{% else %}<option>PENDIENTE</option><option>EN SEGUIMIENTO</option><option>INTEGRADO</option><option>NO VOLVIO</option>{% endif %}</select></div>
 <div class="col-md-4">Responsable (líder)<select class="form-select" name="responsable"><option value="">--</option>{% for l in lideres %}<option>{{l.nombre_completo}}</option>{% endfor %}</select></div>
 <div class="col-12">Motivo de oración*<textarea class="form-control" name="motivo" required placeholder="Ej: salud de su madre, trabajo..."></textarea></div>
 <div class="col-12">Observación<input class="form-control" name="obs"></div>

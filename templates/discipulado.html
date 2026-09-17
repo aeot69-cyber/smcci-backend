@@ -12,7 +12,11 @@
 <option value="12 APOSTOL" {% if f12=='12 APOSTOL' %}selected{% endif %}>12 APOSTOL</option>
 <option value="12 JOVENES" {% if f12=='12 JOVENES' %}selected{% endif %}>12 JOVENES</option>
 <option value="NINGUNO" {% if f12=='NINGUNO' %}selected{% endif %}>NINGUNO</option></select></div>
-<div class="col-auto"><button class="btn btn-primary">🔍 Consultar</button> <a class="btn btn-success" href="/discipulado/nuevo">➕ Ingresar</a> <a class="btn btn-outline-success" href="/discipulado?export=excel&q={{texto}}&f12={{f12}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/discipulado?export=pdf&q={{texto}}&f12={{f12}}" target="_blank">PDF</a></div></form>
-<table class="table table-striped"><tr><th>Hermano</th><th>Líder</th><th>Tipo 12 líder</th><th>Periodicidad</th><th>Activo</th><th>Estado</th><th>Modificar</th></tr>
+<div class="col-auto"><button class="btn btn-primary">🔍 Consultar</button> {% if tiene_permiso('discipulado','crear') %}<a class="btn btn-success" href="/discipulado/nuevo">➕ Ingresar</a>{% endif %} <a class="btn btn-outline-success" href="/discipulado?export=excel&q={{texto}}&f12={{f12}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/discipulado?export=pdf&q={{texto}}&f12={{f12}}" target="_blank">PDF</a></div></form>
+<table class="table table-striped"><tr><th>Hermano</th><th>Líder</th><th>Tipo 12 líder</th><th>Periodicidad</th><th>Activo</th><th>Estado</th><th>Acciones</th></tr>
 {% for d in rows %}<tr><td>{{d.hermano}}</td><td>{{d.lider}}</td><td><span class="badge badge-12 text-white">{{d.tipo_12}}</span></td><td>{{d.periodicidad}}</td><td>{{d.es_discipulo_activo}}</td><td>{{d.fecha_fin or 'VIGENTE'}}</td>
-<td>{% if not d.fecha_fin %}<form method="post" action="/discipulado/{{d.id}}/cerrar"><button class="btn btn-sm btn-outline-secondary" title="Cierra la asignación conservando historial">Cerrar</button></form>{% endif %}</td></tr>{% endfor %}</table></div>{% endblock %}
+<td class="text-nowrap">{% if not d.fecha_fin %}
+{% if tiene_permiso('discipulado','editar') %}<a class="btn btn-sm btn-outline-primary" href="/discipulado/{{d.id}}/editar" title="Modificar">✏️</a> <form method="post" action="/discipulado/{{d.id}}/cerrar" style="display:inline"><button class="btn btn-sm btn-outline-secondary" title="Cerrar">🔒</button></form>{% endif %}
+{% endif %}
+{% if tiene_permiso('discipulado','eliminar') %}<form method="post" action="/discipulado/{{d.id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar asignación?')"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
+</td></tr>{% endfor %}</table></div>{% endblock %}

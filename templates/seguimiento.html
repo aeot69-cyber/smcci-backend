@@ -13,17 +13,18 @@
 {% for x in rows %}<tr><td>{{x.nombre_completo}}</td><td>{{x.telefono}}</td>
 <td>{{x.invitado_por or x.invitado_por_texto or '—'}}</td><td>{{x.ultimo_seg or 'NUNCA'}}</td>
 <td><form method="post" action="/seguimiento/{{x.id}}/registrar" class="d-flex gap-1">
-<select name="tipo" class="form-select form-select-sm"><option>LLAMADA</option><option>WHATSAPP</option><option>VISITA</option><option>ORACION</option><option>INVITACION CELULA</option></select>
+<select name="tipo" class="form-select form-select-sm">{% if tipos_seg %}{% for t in tipos_seg %}<option>{{t.nombre}}</option>{% endfor %}{% else %}<option>LLAMADA</option><option>WHATSAPP</option><option>VISITA</option><option>ORACION</option><option>INVITACION CELULA</option>{% endif %}</select>
 <select name="responsable" class="form-select form-select-sm" required><option value="">Responsable...</option>{% for l in lideres %}<option>{{l.nombre_completo}}</option>{% endfor %}</select>
 <button class="btn btn-sm btn-primary">💾</button></form></td></tr>{% else %}<tr><td colspan=5>✅ Sin pendientes.</td></tr>{% endfor %}</table></div>
 <div class="card p-3 mb-3"><h5>👋 Visitas en seguimiento ({{visitas|length}}) — con motivo de oración</h5>
 <table class="table table-striped"><tr><th>Nombre</th><th>Motivo oración</th><th>Estado</th><th>Último</th><th>Registrar</th></tr>
 {% for v in visitas %}<tr><td>{{v.nombre_completo}}</td><td>{{v.motivo_oracion}}</td><td>{{v.estado}}</td><td>{{v.ultimo_seg or 'NUNCA'}}</td>
 <td><form method="post" action="/seguimiento/visita/{{v.id}}/registrar" class="d-flex gap-1">
-<select name="tipo" class="form-select form-select-sm"><option>LLAMADA</option><option>WHATSAPP</option><option>VISITA</option><option>ORACION</option></select>
+<select name="tipo" class="form-select form-select-sm">{% if tipos_seg %}{% for t in tipos_seg %}<option>{{t.nombre}}</option>{% endfor %}{% else %}<option>LLAMADA</option><option>WHATSAPP</option><option>VISITA</option><option>ORACION</option>{% endif %}</select>
 <select name="responsable" class="form-select form-select-sm" required><option value="">Responsable...</option>{% for l in lideres %}<option>{{l.nombre_completo}}</option>{% endfor %}</select>
 <button class="btn btn-sm btn-success">💾</button></form></td></tr>{% else %}<tr><td colspan=5>Sin visitas pendientes.</td></tr>{% endfor %}</table></div>
 <div class="card p-3 mb-3"><h5>👥 Líderes SIN CÉLULA ({{lideres_sin|length}})</h5>
-<table class="table"><tr><th>Nombre</th><th>Red</th></tr>{% for l in lideres_sin %}<tr><td>{{l.nombre_completo}}</td><td>{{l.red}}</td></tr>{% else %}<tr><td colspan=2>Ninguno</td></tr>{% endfor %}</table></div>
-<div class="card p-3"><h5>Historial (hermanos + visitas)</h5><table class="table"><tr><th>Fecha</th><th>Origen</th><th>Nombre</th><th>Tipo</th><th>Resp.</th></tr>
-{% for h in hist %}<tr><td>{{h.fecha}}</td><td>{{h.origen}}</td><td>{{h.nombre}}</td><td>{{h.tipo}}</td><td>{{h.responsable}}</td></tr>{% endfor %}</table></div>{% endblock %}
+<table class="table"><tr><th>Nombre</th><th>Red</th></tr>{% for l in lideres_sin %}<tr><td>{{l.nombre_completo}}</td><td>{{l.red or '—'}}</td></tr>{% else %}<tr><td colspan=2>Ninguno</td></tr>{% endfor %}</table></div>
+<div class="card p-3"><h5>Historial (hermanos + visitas)</h5><table class="table"><tr><th>Fecha</th><th>Origen</th><th>Nombre</th><th>Tipo</th><th>Resp.</th><th>Acciones</th></tr>
+{% for h in hist %}<tr><td>{{h.fecha}}</td><td>{{h.origen}}</td><td>{{h.nombre}}</td><td>{{h.tipo or '—'}}</td><td>{{h.responsable}}</td>
+<td>{% if tiene_permiso('seguimiento','eliminar') %}<form method="post" action="/seguimiento/{{h.id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar este seguimiento?')"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}</td></tr>{% endfor %}</table></div>{% endblock %}
