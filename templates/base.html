@@ -10,4 +10,21 @@
 </div>
 <div class="col-md-10 p-0"><div class="topbar p-2 px-3 d-flex justify-content-between"><b>Sistema de Consolidación · Iglesia MCCI</b><span>{{session.user or 'Invitado'}}</span></div>
 <div class="p-3">{% for cat,msg in get_flashed_messages(with_categories=true) %}<div class="alert alert-{{'success' if cat=='ok' else 'danger'}}">{{msg}}</div>{% endfor %}{% block b %}{% endblock %}</div></div>
-</div></div></body></html>
+</div></div>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('form').forEach(function(f){
+    f.addEventListener('submit', function(){
+      var btn = f.querySelector('button[type="submit"], button:not([type])');
+      if(btn && !btn.dataset._loading){
+        btn.dataset._loading = '1';
+        btn.dataset.orig = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Guardando...';
+        btn.disabled = true;
+        setTimeout(function(){ btn.disabled = false; btn.innerHTML = btn.dataset.orig; delete btn.dataset._loading; }, 8000);
+      }
+    });
+  });
+});
+</script>
+</body></html>
