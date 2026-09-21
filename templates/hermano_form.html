@@ -1,16 +1,16 @@
 {% extends "base.html" %}{% block b %}<div class="card p-4 col-md-8"><h4>{{'✏️ Modificar' if h else '➕ Nuevo'}} Hermano</h4>
 <form method="post" class="row g-2">
 <div class="col-md-4">Código{% if h %}<input class="form-control" value="{{h.codigo}}" readonly disabled><small class="text-muted">Automático</small>{% else %}<input class="form-control" value="Se asignará MCCIxxxx automáticamente" readonly disabled><small class="text-muted">No se solicita RUT</small>{% endif %}</div>
-<div class="col-md-4">Nombres<input class="form-control" name="nombres" value="{{h.nombres if h}}" required></div>
-<div class="col-md-4">Paterno<input class="form-control" name="paterno" value="{{h.apellido_paterno if h}}" required></div>
-<div class="col-md-4">Materno<input class="form-control" name="materno" value="{{h.apellido_materno if h}}"></div>
-<div class="col-md-4">Nacimiento<input class="form-control" type="date" name="fnac" value="{{h.fecha_nacimiento if h}}"></div>
+<div class="col-md-4">Nombres<input class="form-control" name="nombres" value="{{h.nombres if h and h.nombres and h.nombres != 'None' else ''}}" required></div>
+<div class="col-md-4">Paterno<input class="form-control" name="paterno" value="{{h.apellido_paterno if h and h.apellido_paterno and h.apellido_paterno != 'None' else ''}}" required></div>
+<div class="col-md-4">Materno<input class="form-control" name="materno" value="{{h.apellido_materno if h and h.apellido_materno and h.apellido_materno != 'None' else ''}}"></div>
+<div class="col-md-4">Nacimiento<input class="form-control" type="date" name="fnac" value="{{h.fecha_nacimiento if h and h.fecha_nacimiento else ''}}"></div>
 <div class="col-md-4">Sexo<select class="form-select" name="sexo"><option value="">-- Ninguno --</option>{% if sexos %}{% for s in sexos %}<option value="{{s.codigo}}" {{'selected' if h and h.sexo==s.codigo}}>{{s.nombre}}</option>{% endfor %}{% else %}<option value="M" {{'selected' if h and h.sexo=='M'}}>Masculino</option><option value="F" {{'selected' if h and h.sexo=='F'}}>Femenino</option>{% endif %}</select></div>
 <div class="col-md-4">Estado civil<select class="form-select" name="ecivil"><option value="">-- Ninguno --</option>{% if estados_civil %}{% for ec in estados_civil %}<option value="{{ec.nombre}}" {{'selected' if h and h.estado_civil==ec.nombre}}>{{ec.nombre}}</option>{% endfor %}{% else %}{% for ec in ['SOLTERO','CASADO','VIUDO','DIVORCIADO','CONVIVIENTE'] %}<option value="{{ec}}" {{'selected' if h and h.estado_civil==ec}}>{{ec}}</option>{% endfor %}{% endif %}</select></div>
-<div class="col-md-4">Correo<input class="form-control" name="correo" value="{{h.correo if h}}"></div>
-<div class="col-md-4">Tel<input class="form-control" name="telefono" value="{{h.telefono if h}}"></div>
-<div class="col-md-8">Dirección<input class="form-control" name="direccion" value="{{h.direccion if h}}"></div>
+<div class="col-md-4">Correo<input class="form-control" name="correo" value="{{h.correo if h and h.correo and h.correo != 'None' else ''}}"></div>
+<div class="col-md-4">Tel<input class="form-control" name="telefono" value="{{h.telefono if h and h.telefono and h.telefono != 'None' else ''}}"></div>
+<div class="col-md-8">Dirección<input class="form-control" name="direccion" value="{{h.direccion if h and h.direccion and h.direccion != 'None' else ''}}"></div>
 <div class="col-md-6">Comuna<select class="form-select" name="comuna"><option value="">--</option>{% for c in comunas %}<option value="{{c.id}}">{{c.nombre}}</option>{% endfor %}</select></div>
 <div class="col-md-6">¿Quién lo invitó? (seguimiento)<select class="form-select" name="invitado"><option value="">-- Nadie / no registra --</option>{% for x in hermanos %}<option value="{{x.id}}">{{x.nombre_completo}}</option>{% endfor %}</select></div>
-<div class="col-md-6">Invitado por (externo)<input class="form-control" name="invtexto" placeholder="Ej: Pr. Carlos, amiga, etc."></div>
+<div class="col-md-6">Invitado por (externo)<input class="form-control" name="invtexto" value="{{h.invitado_por_texto if h and h.invitado_por_texto and h.invitado_por_texto != 'None' else ''}}" placeholder="Ej: Pr. Carlos, amiga, etc."></div>
 <div class="col-12"><button class="btn btn-success">💾 Guardar</button> <a class="btn btn-secondary" href="/hermanos">Volver</a></div></form></div>{% endblock %}

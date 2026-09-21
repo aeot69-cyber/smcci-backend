@@ -654,35 +654,26 @@ def hermano_update(hid):
         comuna_val = int(comuna_val) if comuna_val and comuna_val.strip() else None
         invitado_val = f.get("invitado")
         invitado_val = int(invitado_val) if invitado_val and invitado_val.strip() else None
-        # Materno y correo pueden vaciarse
-        materno_val = f.get("materno")
-        if materno_val == "": materno_val = None
-        elif materno_val is None: materno_val = act["apellido_materno"]
-        correo_val = f.get("correo")
-        if correo_val == "": correo_val = None
-        elif not correo_val: correo_val = act["correo"]
-        # RUT: si cambió, validar y actualizar (único, formato)
-        rut_nuevo = f.get("rut","").strip()
-        if rut_nuevo:
-            rut_nuevo = limpiar_rut(rut_nuevo)
-            if rut_nuevo != act["rut"]:
-                # Validar formato y duplicado
-                if not rut_nuevo or "-" not in rut_nuevo:
-                    flash("RUT inválido: use formato 12345678-9", "error"); return redirect(url_for("hermanos"))
-                dup = q("SELECT id FROM hermanos WHERE rut=%s AND id!=%s", (rut_nuevo, hid), one=True)
-                if dup:
-                    flash(f"RUT {rut_nuevo} ya existe en otro hermano", "error"); return redirect(url_for("hermanos"))
-                q("UPDATE hermanos SET rut=%s WHERE id=%s", (rut_nuevo, hid), commit=True)
+        # Materno y correo pueden vaciarse ("None" string viene de template viejo)
+        def clean(v):
+            if v is None or v == "" or v == "None" or v == "null": return None
+            return v.strip() if isinstance(v, str) else v
+        materno_val = clean(f.get("materno"))
+        if materno_val is None and f.get("materno") is None: materno_val = act["apellido_materno"]
+        correo_val = clean(f.get("correo"))
+        if correo_val is None and not f.get("correo"): correo_val = act["correo"] if act["correo"] not in ("None",) else None
+        # Telefono y direccion: normalizar "None" -> None para update_parcial
+        tel_raw = clean(f.get("telefono"))
+        dir_raw = clean(f.get("direccion"))
+        invtexto_val = clean(f.get("invtexto"))
         # Resto: si viene vacío conservar anterior, excepto los que permiten NULL
         update_parcial("hermanos", hid, {
             "nombres": f.get("nombres") or act["nombres"],
             "apellido_paterno": f.get("paterno") or act["apellido_paterno"],
-            "telefono": f.get("telefono") or act["telefono"],
-            "direccion": f.get("direccion") or act["direccion"],
         })
         # Actualizar campos que pueden ser NULL por separado
-        q("UPDATE hermanos SET apellido_materno=%s, correo=%s, comuna_id=%s, sexo=%s, estado_civil=%s, invitado_por_id=%s, invitado_por_texto=%s WHERE id=%s",
-          (materno_val, correo_val, comuna_val, sexo_val, ecivil_val, invitado_val, f.get("invtexto") or None, hid), commit=True)
+        q("UPDATE hermanos SET apellido_materno=%s, correo=%s, telefono=%s, direccion=%s, comuna_id=%s, sexo=%s, estado_civil=%s, invitado_por_id=%s, invitado_por_texto=%s WHERE id=%s",
+          (materno_val, correo_val, tel_raw, dir_raw, comuna_val, sexo_val, ecivil_val, invitado_val, invtexto_val, hid), commit=True)
         log_audit("EDITAR","hermanos", f"id={hid}")
         flash("Actualizado", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
