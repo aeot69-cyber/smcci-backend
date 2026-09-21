@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block b %}
-<div class="card p-3"><h4>🤝 Discipulado <small class="text-muted">Consultar / Modificar</small></h4>
+<div class="card p-3"><h4>🤝 Discipulado <small class="text-muted">Consultar / Modificar</small> <span class="badge bg-primary ms-2">{{rows|length}} registros</span></h4>
 <details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
 <li><b>Hermano:</b> discípulo asignado. <b>Líder:</b> quién lo pastorea.</li>
 <li><b>Tipo 12 líder:</b> cobertura del líder (filtra por 12 PASTORES/APOSTOL/JOVENES).</li>
@@ -19,4 +19,5 @@
 {% if tiene_permiso('discipulado','editar') %}<a class="btn btn-sm btn-outline-primary" href="/discipulado/{{d.id}}/editar" title="Modificar">✏️</a> <form method="post" action="/discipulado/{{d.id}}/cerrar" style="display:inline"><button class="btn btn-sm btn-outline-secondary" title="Cerrar">🔒</button></form>{% endif %}
 {% endif %}
 {% if tiene_permiso('discipulado','eliminar') %}<form method="post" action="/discipulado/{{d.id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar asignación?')"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
-</td></tr>{% endfor %}</table></div>{% endblock %}
+</td></tr>{% endfor %}</table>
+<p class="text-muted small">Mostrando {{rows|length}} registros.</p></div>{% endblock %}

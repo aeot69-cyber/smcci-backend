@@ -1,16 +1,17 @@
 {% extends "base.html" %}{% block b %}
-<div class="card p-3"><h4>🙋 Hermanos <small class="text-muted">Consultar / Modificar</small></h4>
+<div class="card p-3"><h4>🙋 Hermanos <small class="text-muted">Consultar / Modificar</small> <span class="badge bg-primary ms-2">{{rows|length}} hermanos</span></h4>
 <details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
-<li><b>Buscar:</b> filtra por nombre o RUT. <b>Consultar</b> ejecuta el filtro.</li>
-<li><b>RUT:</b> identificador chileno único (12345678-9). No se repite ni se edita.</li>
+<li><b>Buscar:</b> filtra por nombre o código. <b>Consultar</b> ejecuta el filtro.</li>
+<li><b>Código:</b> identificador automático alfanumérico (MCCI0001...), se genera solo al crear. Visible en consulta, Excel y PDF.</li>
 <li><b>Comuna/Región:</b> vienen de tablas maestras relacionadas.</li>
 <li><b>✏️ Modificar:</b> edita datos, comuna y quién lo invitó.</li>
 <li><b>Excel/PDF:</b> exporta lo que ves filtrado.</li></ul></details>
-<form class="row g-2 mb-2" method="get"><div class="col"><input class="form-control" name="q" value="{{texto}}" placeholder="Buscar por nombre o RUT..." title="Escribe nombre o RUT y pulsa Consultar"></div>
+<form class="row g-2 mb-2" method="get"><div class="col"><input class="form-control" name="q" value="{{texto}}" placeholder="Buscar por nombre o código..." title="Escribe nombre o código y pulsa Consultar"></div>
 <div class="col-auto"><button class="btn btn-primary" title="Filtrar la lista">🔍 Consultar</button> {% if tiene_permiso('hermanos','crear') %}<a class="btn btn-success" href="/hermanos/nuevo" title="Crear un hermano nuevo">➕ Ingresar</a>{% endif %} <a class="btn btn-outline-success" href="/hermanos?export=excel&q={{texto}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/hermanos?export=pdf&q={{texto}}" target="_blank">PDF</a></div></form>
-<table class="table table-striped"><tr><th title="Rol único tributario">RUT</th><th>Nombre</th><th>Comuna</th><th>Teléfono</th><th>Acciones</th></tr>
-{% for h in rows %}<tr><td>{{h.rut}}</td><td>{{h.nombre_completo}}</td><td>{{h.comuna}}</td><td>{{h.telefono}}</td>
+<table class="table table-striped"><tr><th>Código</th><th>Nombre</th><th>Comuna</th><th>Teléfono</th><th>Acciones</th></tr>
+{% for h in rows %}<tr><td><span class="badge bg-dark">{{h.codigo or '—'}}</span></td><td>{{h.nombre_completo}}</td><td>{{h.comuna}}</td><td>{{h.telefono}}</td>
 <td class="text-nowrap">
 {% if tiene_permiso('hermanos','editar') %}<a class="btn btn-sm btn-outline-primary" href="/hermanos/{{h.id}}/editar">✏️</a>{% endif %}
 {% if tiene_permiso('hermanos','eliminar') %}<form method="post" action="/hermanos/{{h.id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar hermano {{h.nombre_completo}}?')"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
-</td></tr>{% endfor %}</table></div>{% endblock %}
+</td></tr>{% endfor %}</table>
+<p class="text-muted small">Mostrando {{rows|length}} registros.</p></div>{% endblock %}

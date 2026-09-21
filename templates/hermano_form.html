@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block b %}<div class="card p-4 col-md-8"><h4>{{'✏️ Modificar' if h else '➕ Nuevo'}} Hermano</h4>
 <form method="post" class="row g-2">
-<div class="col-md-4">RUT{% if h %}<small class="text-muted ms-1">(editable — único)</small>{% endif %}<input class="form-control" name="rut" value="{{h.rut if h}}" required pattern="[0-9]{7,8}-[0-9kK]" title="Formato 12345678-9"></div>
+<div class="col-md-4">Código{% if h %}<input class="form-control" value="{{h.codigo}}" readonly disabled><small class="text-muted">Automático</small>{% else %}<input class="form-control" value="Se asignará MCCIxxxx automáticamente" readonly disabled><small class="text-muted">No se solicita RUT</small>{% endif %}</div>
 <div class="col-md-4">Nombres<input class="form-control" name="nombres" value="{{h.nombres if h}}" required></div>
 <div class="col-md-4">Paterno<input class="form-control" name="paterno" value="{{h.apellido_paterno if h}}" required></div>
 <div class="col-md-4">Materno<input class="form-control" name="materno" value="{{h.apellido_materno if h}}"></div>

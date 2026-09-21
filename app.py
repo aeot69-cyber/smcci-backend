@@ -590,10 +590,10 @@ def index():
 def hermanos():
     texto = request.args.get("q", "")
     exp = request.args.get("export", "")
-    rows = q("SELECT id, rut AS rut, nombre_completo, comuna, region, correo, telefono FROM v_hermanos_completo WHERE nombre_completo ILIKE %s OR rut ILIKE %s ORDER BY nombre_completo LIMIT 500",
-             (f"%{texto}%", f"%{texto}%"))
-    if exp == "excel": return to_excel(rows, ["rut", "nombre_completo", "comuna", "region", "correo", "telefono"], "hermanos.xlsx")
-    if exp == "pdf": return to_pdf("Hermanos MCCI", rows, ["rut", "nombre_completo", "comuna", "region"], "hermanos.pdf")
+    rows = q("SELECT id, codigo, nombre_completo, comuna, region, correo, telefono FROM v_hermanos_completo WHERE nombre_completo ILIKE %s OR codigo ILIKE %s OR rut ILIKE %s ORDER BY nombre_completo LIMIT 1000",
+             (f"%{texto}%", f"%{texto}%", f"%{texto}%"))
+    if exp == "excel": return to_excel(rows, ["codigo", "nombre_completo", "comuna", "region", "correo", "telefono"], "hermanos.xlsx")
+    if exp == "pdf": return to_pdf("Hermanos MCCI", rows, ["codigo", "nombre_completo", "comuna", "region"], "hermanos.pdf")
     return render_template("hermanos.html", rows=rows, texto=texto)
 
 @app.get("/hermanos/nuevo")
@@ -612,16 +612,16 @@ def hermano_nuevo():
 def hermano_crear():
     f = request.form
     try:
-        rut = limpiar_rut(f["rut"])
-        q("""INSERT INTO hermanos(rut,nombres,apellido_paterno,apellido_materno,fecha_nacimiento,fecha_aniversario,
-            correo,telefono,direccion,comuna_id,sexo,estado_civil,invitado_por_id,invitado_por_texto) VALUES(%s,%s,%s,%s,NULLIF(%s,'')::date,NULLIF(%s,'')::date,
+        codigo = q("SELECT 'MCCI' || LPAD(nextval('seq_codigo')::text,4,'0') AS c", one=True)["c"]
+        q("""INSERT INTO hermanos(codigo,rut,nombres,apellido_paterno,apellido_materno,fecha_nacimiento,fecha_aniversario,
+            correo,telefono,direccion,comuna_id,sexo,estado_civil,invitado_por_id,invitado_por_texto) VALUES(%s,NULL,%s,%s,%s,NULLIF(%s,'')::date,NULLIF(%s,'')::date,
             NULLIF(%s,''),%s,%s,NULLIF(%s,'')::int,%s,%s,NULLIF(%s,'')::int,NULLIF(%s,''))""",
-          (rut, f["nombres"].strip(), f["paterno"].strip(), f.get("materno") or None,
+          (codigo, f["nombres"].strip(), f["paterno"].strip(), f.get("materno") or None,
            f.get("fnac") or None, f.get("fani") or None, f.get("correo") or None,
            f.get("telefono"), f.get("direccion"), f.get("comuna") or None, f.get("sexo") or None,
            f.get("ecivil") or None, f.get("invitado") or None, f.get("invtexto") or None), commit=True)
-        log_audit("CREAR","hermanos", f"rut={rut} {f.get('nombres','')}")
-        flash("Hermano creado", "ok")
+        log_audit("CREAR","hermanos", f"codigo={codigo} {f.get('nombres','')}")
+        flash(f"Hermano creado con código {codigo}", "ok")
     except Exception as e: flash(f"Error: {e}", "error"); return redirect(url_for("hermano_nuevo"))
     return redirect(url_for("hermanos"))
 
@@ -721,8 +721,8 @@ def lideres():
         where += " AND l.lider ILIKE %s"
         params.append(f"%{texto}%")
     rows = q(f"SELECT * FROM v_lideres_conteo l {where} ORDER BY discipulos_activos DESC", tuple(params))
-    if exp == "excel": return to_excel(rows, ["lider", "rol_lider", "pastor_nombre", "red", "tipo_12", "estado_celula", "info_enviada", "cantidad_celulas", "discipulos_activos"], "lideres.xlsx")
-    if exp == "pdf": return to_pdf("Lideres MCCI", rows, ["lider", "rol_lider", "red", "tipo_12", "discipulos_activos"], "lideres.pdf")
+    if exp == "excel": return to_excel(rows, ["codigo", "lider", "rol_lider", "pastor_nombre", "red", "tipo_12", "estado_celula", "info_enviada", "cantidad_celulas", "discipulos_activos"], "lideres.xlsx")
+    if exp == "pdf": return to_pdf("Lideres MCCI", rows, ["codigo", "lider", "rol_lider", "red", "tipo_12", "discipulos_activos"], "lideres.pdf")
     todos = q("""SELECT l.id, h.nombre_completo AS nombre,
         (SELECT COUNT(*) FROM lideres l2 WHERE l2.lider_padre_id=l.id AND l2.activo) AS hijos
         FROM lideres l JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY h.nombre_completo""")
@@ -831,12 +831,12 @@ def discipulado():
     params = (f12, f12 or None, f"%{texto}%", f"%{texto}%")
     rows = q(f"""SELECT h.nombre_completo AS hermano,hl.nombre_completo AS lider,p.nombre AS periodicidad,
         l.tipo_12,d.es_discipulo_activo,d.fecha_asignacion,d.fecha_fin {base}
-        ORDER BY d.fecha_fin NULLS FIRST, d.fecha_asignacion DESC LIMIT 500""", params)
+        ORDER BY d.fecha_fin NULLS FIRST, d.fecha_asignacion DESC LIMIT 1000""", params)
     if exp == "excel": return to_excel(rows, ["hermano", "lider", "periodicidad", "tipo_12", "es_discipulo_activo", "fecha_asignacion", "fecha_fin"], "discipulado.xlsx")
     if exp == "pdf": return to_pdf("Discipulado MCCI", rows, ["hermano", "lider", "tipo_12"], "discipulado.pdf")
     full = q(f"""SELECT d.id,h.nombre_completo AS hermano,hl.nombre_completo AS lider,p.nombre AS periodicidad,
         l.tipo_12,d.es_discipulo_activo,d.fecha_asignacion,d.fecha_fin {base}
-        ORDER BY d.fecha_fin NULLS FIRST, d.fecha_asignacion DESC LIMIT 300""", params)
+        ORDER BY d.fecha_fin NULLS FIRST, d.fecha_asignacion DESC LIMIT 1000""", params)
     return render_template("discipulado.html", rows=full, texto=texto, f12=f12)
 
 @app.get("/discipulado/nuevo")
@@ -1128,7 +1128,7 @@ def visitas():
     base = "FROM v_visitas_completo WHERE (%s='' OR estado=%s) AND nombre_completo ILIKE %s"
     params = (fest, fest or None, f"%{texto}%")
     rows = q(f"SELECT * {base} ORDER BY fecha_visita DESC LIMIT 300", params)
-    if exp == "excel": return to_excel(rows, ["rut", "nombre_completo", "direccion", "telefono", "comuna", "invitado_por", "invitado_por_texto", "fecha_visita", "motivo_oracion", "estado", "responsable"], "visitas.xlsx")
+    if exp == "excel": return to_excel(rows, ["nombre_completo", "direccion", "telefono", "comuna", "invitado_por", "invitado_por_texto", "fecha_visita", "motivo_oracion", "estado", "responsable"], "visitas.xlsx")
     if exp == "pdf": return to_pdf("Visitas MCCI", rows, ["nombre_completo", "telefono", "motivo_oracion", "estado"], "visitas.pdf")
     lideres = q("""SELECT l.id, h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
         WHERE l.activo ORDER BY h.nombre_completo""")
@@ -1184,10 +1184,9 @@ def visita_estado(vid):
 def visita_integrar(vid):
     """Integra visita: crea hermano + lo asigna a célula (discipulado)."""
     f = request.form
-    rut = (f.get("rut") or "").strip()
     lider_id = f.get("lider")
-    if not rut or not lider_id:
-        flash("Para integrar indica RUT y líder/célula destino", "error"); return redirect(url_for("visitas"))
+    if not lider_id:
+        flash("Para integrar indica líder/célula destino", "error"); return redirect(url_for("visitas"))
     v = q("SELECT * FROM visitas WHERE id=%s", (vid,), one=True)
     if not v: flash("Visita no existe", "error"); return redirect(url_for("visitas"))
     if v["estado"] == "INTEGRADO":
@@ -1196,17 +1195,18 @@ def visita_integrar(vid):
     nombres = " ".join(partes[:2]) if len(partes) > 2 else (partes[0] if partes else "S/N")
     paterno = partes[-1] if len(partes) > 1 else "S/A"
     try:
+        codigo = q("SELECT 'MCCI' || LPAD(nextval('seq_codigo')::text,4,'0') AS c", one=True)["c"]
         c = db()
         with c.cursor() as cur:
-            cur.execute("""INSERT INTO hermanos(rut,nombres,apellido_paterno,telefono,direccion,correo,comuna_id,invitado_por_id,invitado_por_texto)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (rut, nombres, paterno, v["telefono"], v["direccion"], v["correo"], v["comuna_id"], v["invitado_por_id"], v["invitado_por_texto"]))
+            cur.execute("""INSERT INTO hermanos(codigo,nombres,apellido_paterno,telefono,direccion,correo,comuna_id,invitado_por_id,invitado_por_texto)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (codigo, nombres, paterno, v["telefono"], v["direccion"], v["correo"], v["comuna_id"], v["invitado_por_id"], v["invitado_por_texto"]))
             hid = cur.fetchone()["id"]
             cur.execute("INSERT INTO discipulado(hermano_id,lider_id,es_discipulo_activo,observacion) VALUES(%s,%s,TRUE,'Integrado desde visita')", (hid, lider_id))
             cur.execute("UPDATE visitas SET estado='INTEGRADO', hermano_id=%s WHERE id=%s", (hid, vid))
             c.commit()
-        log_audit("CREAR","visitas", f"integrar visita {vid} -> hermano {hid}")
-        flash(f"Integrado: ahora es hermano + asignado a célula (id {hid})", "ok")
+        log_audit("CREAR","visitas", f"integrar visita {vid} -> hermano {codigo} id {hid}")
+        flash(f"Integrado: hermano {codigo} creado y asignado a célula (id {hid})", "ok")
     except Exception as e:
         flash(f"Error al integrar (¿RUT duplicado?): {e}", "error")
     return redirect(url_for("visitas"))
