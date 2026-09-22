@@ -577,8 +577,9 @@ def usuario_permisos():
 def index():
     d = {}
     d["hermanos"] = q("SELECT COUNT(*) c FROM hermanos WHERE activo", one=True)["c"]
-    d["lideres"] = q("SELECT COUNT(*) c FROM lideres WHERE activo", one=True)["c"]
-    d["disc"] = q("SELECT COUNT(*) c FROM discipulado WHERE fecha_fin IS NULL", one=True)["c"]
+    d["lideres"] = q("SELECT COUNT(*) c FROM hermanos WHERE tipo_hermano='LIDER' AND activo", one=True)["c"]
+    d["disc"] = q("SELECT COUNT(*) c FROM hermanos WHERE tipo_hermano='DISCIPULO' AND activo", one=True)["c"]
+    d["ninguno"] = q("SELECT COUNT(*) c FROM hermanos WHERE tipo_hermano='NINGUNO' AND activo", one=True)["c"]
     d["pend"] = q("SELECT COUNT(*) c FROM encuentro_participacion WHERE estado='PENDIENTE'", one=True)["c"]
     d["top"] = q("SELECT * FROM v_lideres_conteo ORDER BY discipulos_activos DESC LIMIT 10")
     d["cumple"] = q("""SELECT nombre_completo,fecha_nacimiento FROM hermanos WHERE activo
