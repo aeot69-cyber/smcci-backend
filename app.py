@@ -1208,21 +1208,23 @@ def visita_integrar(vid):
     partes = (v["nombre_completo"] or "").split()
     nombres = " ".join(partes[:2]) if len(partes) > 2 else (partes[0] if partes else "S/N")
     paterno = partes[-1] if len(partes) > 1 else "S/A"
+    nombres = nombres.upper()
+    paterno = paterno.upper()
     try:
         codigo = q("SELECT 'MCCI' || LPAD(nextval('seq_codigo')::text,4,'0') AS c", one=True)["c"]
         c = db()
         with c.cursor() as cur:
-            cur.execute("""INSERT INTO hermanos(codigo,nombres,apellido_paterno,telefono,direccion,correo,comuna_id,invitado_por_id,invitado_por_texto)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            cur.execute("""INSERT INTO hermanos(codigo,tipo_hermano,nombres,apellido_paterno,telefono,direccion,correo,comuna_id,invitado_por_id,invitado_por_texto)
+                VALUES(%s,'DISCIPULO',%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                 (codigo, nombres, paterno, v["telefono"], v["direccion"], v["correo"], v["comuna_id"], v["invitado_por_id"], v["invitado_por_texto"]))
             hid = cur.fetchone()["id"]
             cur.execute("INSERT INTO discipulado(hermano_id,lider_id,es_discipulo_activo,observacion) VALUES(%s,%s,TRUE,'Integrado desde visita')", (hid, lider_id))
             cur.execute("UPDATE visitas SET estado='INTEGRADO', hermano_id=%s WHERE id=%s", (hid, vid))
             c.commit()
         log_audit("CREAR","visitas", f"integrar visita {vid} -> hermano {codigo} id {hid}")
-        flash(f"Integrado: hermano {codigo} creado y asignado a célula (id {hid})", "ok")
+        flash(f"Integrado: hermano {codigo} (DISCÍPULO) creado y asignado a célula (id {hid})", "ok")
     except Exception as e:
-        flash(f"Error al integrar (¿RUT duplicado?): {e}", "error")
+        flash(f"Error al integrar: {e}", "error")
     return redirect(url_for("visitas"))
 
 @app.post("/visitas/<int:vid>/eliminar")
