@@ -151,6 +151,7 @@ CATALOGO_FALLBACK = {
     "catalogo_info_enviada":      [("lideres", "info_enviada", "EN CONSULTA")],
     "catalogo_estado_visita":     [("visitas", "estado", "PENDIENTE")],
     "catalogo_tipo_seguimiento":  [("seguimiento", "tipo", "LLAMADA")],
+    "catalogo_tipo_hermano":      [("hermanos", "tipo_hermano", "NINGUNO")],
     "catalogo_roles_usuario":     [("usuarios", "rol", "CONSULTA")],
 }
 
@@ -590,11 +591,19 @@ def index():
 def hermanos():
     texto = request.args.get("q", "")
     exp = request.args.get("export", "")
-    rows = q("SELECT id, codigo, nombre_completo, comuna, region, correo, telefono FROM v_hermanos_completo WHERE nombre_completo ILIKE %s OR codigo ILIKE %s OR rut ILIKE %s ORDER BY nombre_completo LIMIT 1000",
-             (f"%{texto}%", f"%{texto}%", f"%{texto}%"))
-    if exp == "excel": return to_excel(rows, ["codigo", "nombre_completo", "comuna", "region", "correo", "telefono"], "hermanos.xlsx")
-    if exp == "pdf": return to_pdf("Hermanos MCCI", rows, ["codigo", "nombre_completo", "comuna", "region"], "hermanos.pdf")
-    return render_template("hermanos.html", rows=rows, texto=texto)
+    ftipo = request.args.get("ftipo","")
+    where_extra = " AND tipo_hermano=%s" if ftipo else ""
+    params_extra = (ftipo,) if ftipo else ()
+    if ftipo:
+        rows = q(f"SELECT id, codigo, nombre_completo, comuna, region, correo, telefono, tipo_hermano FROM v_hermanos_completo WHERE (nombre_completo ILIKE %s OR codigo ILIKE %s) {where_extra} ORDER BY nombre_completo LIMIT 1000",
+                 (f"%{texto}%", f"%{texto}%") + params_extra)
+    else:
+        rows = q("SELECT id, codigo, nombre_completo, comuna, region, correo, telefono, tipo_hermano FROM v_hermanos_completo WHERE nombre_completo ILIKE %s OR codigo ILIKE %s OR rut ILIKE %s ORDER BY nombre_completo LIMIT 1000",
+                 (f"%{texto}%", f"%{texto}%", f"%{texto}%"))
+    if exp == "excel": return to_excel(rows, ["codigo", "nombre_completo", "tipo_hermano", "comuna", "region", "correo", "telefono"], "hermanos.xlsx")
+    if exp == "pdf": return to_pdf("Hermanos MCCI", rows, ["codigo", "nombre_completo", "tipo_hermano", "comuna", "region"], "hermanos.pdf")
+    tipos_hermano = get_catalogo("catalogo_tipo_hermano")
+    return render_template("hermanos.html", rows=rows, texto=texto, ftipo=ftipo, tipos_hermano=tipos_hermano)
 
 @app.get("/hermanos/nuevo")
 @login_req
@@ -604,7 +613,8 @@ def hermano_nuevo():
     her = q("SELECT id,nombre_completo FROM hermanos WHERE activo ORDER BY 2")
     sexos = get_catalogo("catalogo_sexo")
     estados_civil = get_catalogo("catalogo_estado_civil")
-    return render_template("hermano_form.html", h=None, comunas=com, hermanos=her, sexos=sexos, estados_civil=estados_civil)
+    tipos_hermano = get_catalogo("catalogo_tipo_hermano")
+    return render_template("hermano_form.html", h=None, comunas=com, hermanos=her, sexos=sexos, estados_civil=estados_civil, tipos_hermano=tipos_hermano)
 
 @app.post("/hermanos/nuevo")
 @login_req
@@ -613,14 +623,20 @@ def hermano_crear():
     f = request.form
     try:
         codigo = q("SELECT 'MCCI' || LPAD(nextval('seq_codigo')::text,4,'0') AS c", one=True)["c"]
-        q("""INSERT INTO hermanos(codigo,rut,nombres,apellido_paterno,apellido_materno,fecha_nacimiento,fecha_aniversario,
-            correo,telefono,direccion,comuna_id,sexo,estado_civil,invitado_por_id,invitado_por_texto) VALUES(%s,NULL,%s,%s,%s,NULLIF(%s,'')::date,NULLIF(%s,'')::date,
+        tipo_h = f.get("tipo_hermano") or 'NINGUNO'
+        q("""INSERT INTO hermanos(codigo,tipo_hermano,rut,nombres,apellido_paterno,apellido_materno,fecha_nacimiento,fecha_aniversario,
+            correo,telefono,direccion,comuna_id,sexo,estado_civil,invitado_por_id,invitado_por_texto) VALUES(%s,%s,NULL,%s,%s,%s,NULLIF(%s,'')::date,NULLIF(%s,'')::date,
             NULLIF(%s,''),%s,%s,NULLIF(%s,'')::int,%s,%s,NULLIF(%s,'')::int,NULLIF(%s,''))""",
-          (codigo, f["nombres"].strip(), f["paterno"].strip(), f.get("materno") or None,
+          (codigo, tipo_h, f["nombres"].strip(), f["paterno"].strip(), f.get("materno") or None,
            f.get("fnac") or None, f.get("fani") or None, f.get("correo") or None,
            f.get("telefono"), f.get("direccion"), f.get("comuna") or None, f.get("sexo") or None,
            f.get("ecivil") or None, f.get("invitado") or None, f.get("invtexto") or None), commit=True)
-        log_audit("CREAR","hermanos", f"codigo={codigo} {f.get('nombres','')}")
+        # Si es LIDER, crear registro en lideres si no existe (de ahí salen líderes de célula)
+        if tipo_h == 'LIDER':
+            hid = q("SELECT id FROM hermanos WHERE codigo=%s", (codigo,), one=True)["id"]
+            if not q("SELECT id FROM lideres WHERE hermano_id=%s", (hid,), one=True):
+                q("INSERT INTO lideres(hermano_id, red, estado_celula, info_enviada, rol_lider, tipo_12) VALUES(%s,'MIXTO','EN FORMACION','EN CONSULTA','NINGUNO','NINGUNO')", (hid,), commit=True)
+        log_audit("CREAR","hermanos", f"codigo={codigo} {f.get('nombres','')} tipo={tipo_h}")
         flash(f"Hermano creado con código {codigo}", "ok")
     except Exception as e: flash(f"Error: {e}", "error"); return redirect(url_for("hermano_nuevo"))
     return redirect(url_for("hermanos"))
@@ -634,7 +650,8 @@ def hermano_editar(hid):
     her = q("SELECT id,nombre_completo FROM hermanos WHERE activo AND id!=%s ORDER BY 2", (hid,))
     sexos = get_catalogo("catalogo_sexo")
     estados_civil = get_catalogo("catalogo_estado_civil")
-    return render_template("hermano_form.html", h=h, comunas=com, hermanos=her, sexos=sexos, estados_civil=estados_civil)
+    tipos_hermano = get_catalogo("catalogo_tipo_hermano")
+    return render_template("hermano_form.html", h=h, comunas=com, hermanos=her, sexos=sexos, estados_civil=estados_civil, tipos_hermano=tipos_hermano)
 
 @app.post("/hermanos/<int:hid>/editar")
 @login_req
@@ -666,15 +683,21 @@ def hermano_update(hid):
         tel_raw = clean(f.get("telefono"))
         dir_raw = clean(f.get("direccion"))
         invtexto_val = clean(f.get("invtexto"))
+        tipo_hermano_val = f.get("tipo_hermano") or act.get("tipo_hermano") or 'NINGUNO'
+        if tipo_hermano_val in ("", "None", "null"): tipo_hermano_val = 'NINGUNO'
         # Resto: si viene vacío conservar anterior, excepto los que permiten NULL
         update_parcial("hermanos", hid, {
             "nombres": f.get("nombres") or act["nombres"],
             "apellido_paterno": f.get("paterno") or act["apellido_paterno"],
         })
         # Actualizar campos que pueden ser NULL por separado
-        q("UPDATE hermanos SET apellido_materno=%s, correo=%s, telefono=%s, direccion=%s, comuna_id=%s, sexo=%s, estado_civil=%s, invitado_por_id=%s, invitado_por_texto=%s WHERE id=%s",
-          (materno_val, correo_val, tel_raw, dir_raw, comuna_val, sexo_val, ecivil_val, invitado_val, invtexto_val, hid), commit=True)
-        log_audit("EDITAR","hermanos", f"id={hid}")
+        q("UPDATE hermanos SET apellido_materno=%s, correo=%s, telefono=%s, direccion=%s, comuna_id=%s, sexo=%s, estado_civil=%s, invitado_por_id=%s, invitado_por_texto=%s, tipo_hermano=%s WHERE id=%s",
+          (materno_val, correo_val, tel_raw, dir_raw, comuna_val, sexo_val, ecivil_val, invitado_val, invtexto_val, tipo_hermano_val, hid), commit=True)
+        # Si es LIDER y no tiene registro en lideres, crearlo (de ahí salen líderes de célula)
+        if tipo_hermano_val == 'LIDER':
+            if not q("SELECT id FROM lideres WHERE hermano_id=%s", (hid,), one=True):
+                q("INSERT INTO lideres(hermano_id, red, estado_celula, info_enviada, rol_lider, tipo_12) VALUES(%s,'MIXTO','EN FORMACION','EN CONSULTA','NINGUNO','NINGUNO')", (hid,), commit=True)
+        log_audit("EDITAR","hermanos", f"id={hid} tipo={tipo_hermano_val}")
         flash("Actualizado", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("hermanos"))
@@ -1462,6 +1485,7 @@ CATALOGOS = [
     {"key":"info_enviada","nombre":"Info Enviada","icon":"📬","tabla":"catalogo_info_enviada","tiene_orden":False},
     {"key":"estado_visita","nombre":"Estado Visita","icon":"🙋","tabla":"catalogo_estado_visita","tiene_orden":False},
     {"key":"tipo_seguimiento","nombre":"Tipo Seguimiento","icon":"📞","tabla":"catalogo_tipo_seguimiento","tiene_orden":False},
+    {"key":"tipo_hermano","nombre":"Tipo Hermano","icon":"👤","tabla":"catalogo_tipo_hermano","tiene_orden":False},
     {"key":"roles_usuario","nombre":"Roles de Usuario","icon":"🛡️","tabla":"catalogo_roles_usuario","tiene_orden":False},
 ]
 

@@ -2,16 +2,20 @@
 <div class="card p-3"><h4>🙋 Hermanos <small class="text-muted">Consultar / Modificar</small> <span class="badge bg-primary ms-2">{{rows|length}} hermanos</span></h4>
 <details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
 <li><b>Buscar:</b> filtra por nombre o código. <b>Consultar</b> ejecuta el filtro.</li>
-<li><b>Código:</b> identificador automático alfanumérico (MCCI0001...), se genera solo al crear. Visible en consulta, Excel y PDF.</li>
+<li><b>Código:</b> identificador automático (MCCI0001...), se genera solo al crear. Visible en consulta, Excel y PDF.</li>
+<li><b>Tipo:</b> LÍDER / DISCÍPULO / NINGUNO — configurable en ⚙️ Configuración → Tipo Hermano. Si cambias a LÍDER, se crea automáticamente su registro de líder de célula.</li>
 <li><b>Comuna/Región:</b> vienen de tablas maestras relacionadas.</li>
-<li><b>✏️ Modificar:</b> edita datos, comuna y quién lo invitó.</li>
+<li><b>✏️ Modificar:</b> edita datos completos.</li>
 <li><b>Excel/PDF:</b> exporta lo que ves filtrado.</li></ul></details>
 <form class="row g-2 mb-2" method="get"><div class="col"><input class="form-control" name="q" value="{{texto}}" placeholder="Buscar por nombre o código..." title="Escribe nombre o código y pulsa Consultar"></div>
-<div class="col-auto"><button class="btn btn-primary" title="Filtrar la lista">🔍 Consultar</button> {% if tiene_permiso('hermanos','crear') %}<a class="btn btn-success" href="/hermanos/nuevo" title="Crear un hermano nuevo">➕ Ingresar</a>{% endif %} <a class="btn btn-outline-success" href="/hermanos?export=excel&q={{texto}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/hermanos?export=pdf&q={{texto}}" target="_blank">PDF</a></div></form>
-<table class="table table-striped"><tr><th>Código</th><th>Nombre</th><th>Comuna</th><th>Teléfono</th><th>Acciones</th></tr>
-{% for h in rows %}<tr><td><span class="badge bg-dark">{{h.codigo or '—'}}</span></td><td>{{h.nombre_completo}}</td><td>{{h.comuna}}</td><td>{{h.telefono}}</td>
+<div class="col-md-2"><select class="form-select" name="ftipo" onchange="this.form.submit()"><option value="">Todos los tipos</option>{% if tipos_hermano %}{% for t in tipos_hermano %}<option value="{{t.nombre}}" {% if ftipo==t.nombre %}selected{% endif %}>{{t.nombre}}</option>{% endfor %}{% else %}<option value="LIDER" {% if ftipo=='LIDER' %}selected{% endif %}>LIDER</option><option value="DISCIPULO" {% if ftipo=='DISCIPULO' %}selected{% endif %}>DISCIPULO</option><option value="NINGUNO" {% if ftipo=='NINGUNO' %}selected{% endif %}>NINGUNO</option>{% endif %}</select></div>
+<div class="col-auto"><button class="btn btn-primary" title="Filtrar la lista">🔍 Consultar</button> {% if tiene_permiso('hermanos','crear') %}<a class="btn btn-success" href="/hermanos/nuevo" title="Crear un hermano nuevo">➕ Ingresar</a>{% endif %} <a class="btn btn-outline-success" href="/hermanos?export=excel&q={{texto}}&ftipo={{ftipo}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/hermanos?export=pdf&q={{texto}}&ftipo={{ftipo}}" target="_blank">PDF</a></div></form>
+<div class="table-responsive"><table class="table table-striped"><tr><th>Código</th><th>Nombre</th><th>Tipo</th><th>Comuna</th><th>Teléfono</th><th>Acciones</th></tr>
+{% for h in rows %}<tr><td><span class="badge bg-dark">{{h.codigo or '—'}}</span></td><td>{{h.nombre_completo}}</td>
+<td>{% if tiene_permiso('hermanos','editar') %}<form method="post" action="/hermanos/{{h.id}}/editar" class="d-inline"><select name="tipo_hermano" class="form-select form-select-sm py-0" style="width:auto;display:inline-block;font-size:.8rem" onchange="this.form.submit()" title="Cambiar tipo (crea líder si es LÍDER)">{% if tipos_hermano %}{% for t in tipos_hermano %}<option value="{{t.nombre}}" {% if h.tipo_hermano==t.nombre %}selected{% endif %}>{{t.nombre}}</option>{% endfor %}{% else %}<option value="LIDER" {% if h.tipo_hermano=='LIDER' %}selected{% endif %}>LIDER</option><option value="DISCIPULO" {% if h.tipo_hermano=='DISCIPULO' %}selected{% endif %}>DISCIPULO</option><option value="NINGUNO" {% if h.tipo_hermano=='NINGUNO' %}selected{% endif %}>NINGUNO</option>{% endif %}</select></form>{% else %}<span class="badge bg-{{'success' if h.tipo_hermano=='LIDER' else 'info' if h.tipo_hermano=='DISCIPULO' else 'secondary'}}">{{h.tipo_hermano or 'NINGUNO'}}</span>{% endif %}</td>
+<td>{{h.comuna or '—'}}</td><td>{{h.telefono or '—'}}</td>
 <td class="text-nowrap">
 {% if tiene_permiso('hermanos','editar') %}<a class="btn btn-sm btn-outline-primary" href="/hermanos/{{h.id}}/editar">✏️</a>{% endif %}
 {% if tiene_permiso('hermanos','eliminar') %}<form method="post" action="/hermanos/{{h.id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar hermano {{h.nombre_completo}}?')"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
-</td></tr>{% endfor %}</table>
+</td></tr>{% endfor %}</table></div>
 <p class="text-muted small">Mostrando {{rows|length}} registros.</p></div>{% endblock %}
