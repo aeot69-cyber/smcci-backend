@@ -72,8 +72,7 @@
 <label class="form-label">Modalidad *</label>
 <select class="form-select" name="modalidad" required>
 <option value="">Seleccionar...</option>
-<option value="PRESENCIAL" {{'selected' if c and c.modalidad=='PRESENCIAL'}}>PRESENCIAL</option>
-<option value="ONLINE" {{'selected' if c and c.modalidad=='ONLINE'}}>ONLINE</option>
+{% if modalidades %}{% for m in modalidades %}<option value="{{m.nombre}}" {{'selected' if c and c.modalidad==m.nombre}}>{{m.nombre}}</option>{% endfor %}{% else %}<option value="PRESENCIAL" {{'selected' if c and c.modalidad=='PRESENCIAL'}}>PRESENCIAL</option><option value="ONLINE" {{'selected' if c and c.modalidad=='ONLINE'}}>ONLINE</option><option value="AMBAS" {{'selected' if c and c.modalidad=='AMBAS'}}>AMBAS</option>{% endif %}
 </select></div>
 
 <div class="col-12" id="div_just" style="display:{{'block' if c and not c.realizo else 'none'}}">

@@ -152,6 +152,7 @@ CATALOGO_FALLBACK = {
     "catalogo_estado_visita":     [("visitas", "estado", "PENDIENTE")],
     "catalogo_tipo_seguimiento":  [("seguimiento", "tipo", "LLAMADA")],
     "catalogo_tipo_hermano":      [("hermanos", "tipo_hermano", "NINGUNO")],
+    "catalogo_modalidad_celula":  [("celulas_informe", "modalidad", "PRESENCIAL")],
     "catalogo_roles_usuario":     [("usuarios", "rol", "CONSULTA")],
 }
 
@@ -694,10 +695,15 @@ def hermano_update(hid):
         # Actualizar campos que pueden ser NULL por separado
         q("UPDATE hermanos SET apellido_materno=%s, correo=%s, telefono=%s, direccion=%s, comuna_id=%s, sexo=%s, estado_civil=%s, invitado_por_id=%s, invitado_por_texto=%s, tipo_hermano=%s WHERE id=%s",
           (materno_val, correo_val, tel_raw, dir_raw, comuna_val, sexo_val, ecivil_val, invitado_val, invtexto_val, tipo_hermano_val, hid), commit=True)
-        # Si es LIDER y no tiene registro en lideres, crearlo (de ahí salen líderes de célula)
+        # Sincronización LÍDER ↔ DISCÍPULO: de aquí salen los líderes de célula
         if tipo_hermano_val == 'LIDER':
             if not q("SELECT id FROM lideres WHERE hermano_id=%s", (hid,), one=True):
                 q("INSERT INTO lideres(hermano_id, red, estado_celula, info_enviada, rol_lider, tipo_12) VALUES(%s,'MIXTO','EN FORMACION','EN CONSULTA','NINGUNO','NINGUNO')", (hid,), commit=True)
+            else:
+                q("UPDATE lideres SET activo=true WHERE hermano_id=%s", (hid,), commit=True)
+        elif act.get("tipo_hermano") == 'LIDER' and tipo_hermano_val != 'LIDER':
+            # Bajó de LIDER a DISCIPULO/NINGUNO → desactivar liderazgo pero mantener historial
+            q("UPDATE lideres SET activo=false WHERE hermano_id=%s", (hid,), commit=True)
         log_audit("EDITAR","hermanos", f"id={hid} tipo={tipo_hermano_val}")
         flash("Actualizado", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
@@ -828,9 +834,29 @@ def lider_estado(lid):
 @login_req
 @permiso_req("lideres", "eliminar")
 def lider_eliminar(lid):
-    q("DELETE FROM lideres WHERE id=%s", (lid,), commit=True)
-    log_audit("ELIMINAR","lideres", f"id={lid}")
-    flash("Líder eliminado", "ok")
+    try:
+        row = q("SELECT hermano_id FROM lideres WHERE id=%s", (lid,), one=True)
+        if not row:
+            flash("Líder no encontrado", "error")
+            return redirect(url_for("lideres"))
+        hermano_id = row["hermano_id"]
+        # Quitar referencia como padre
+        q("UPDATE lideres SET lider_padre_id=NULL WHERE lider_padre_id=%s", (lid,), commit=True)
+        # Eliminar discipulados de este líder (libera a los discípulos para reasignar)
+        q("DELETE FROM discipulado WHERE lider_id=%s", (lid,), commit=True)
+        # Quitar referencia en informes de célula
+        try: q("UPDATE celulas_informe SET lider_id=NULL WHERE lider_id=%s", (lid,), commit=True)
+        except: pass
+        try: q("UPDATE celulas_informe SET pastor_id=NULL WHERE pastor_id=%s", (lid,), commit=True)
+        except: pass
+        # Borrar lider
+        q("DELETE FROM lideres WHERE id=%s", (lid,), commit=True)
+        # Actualizar tipo del hermano si era LIDER
+        q("UPDATE hermanos SET tipo_hermano='DISCIPULO' WHERE id=%s AND tipo_hermano='LIDER'", (hermano_id,), commit=True)
+        log_audit("ELIMINAR","lideres", f"id={lid} hermano={hermano_id}")
+        flash("Líder eliminado y discípulos liberados", "ok")
+    except Exception as e:
+        flash(f"No se pudo eliminar líder (¿tiene dependencias?): {e}", "error")
     return redirect(url_for("lideres"))
 
 # ---------- DISCIPULADO ----------
@@ -1273,7 +1299,8 @@ def celulas_informe_nuevo():
     lideres = q("""SELECT l.id, h.nombre_completo FROM lideres l
         JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY h.nombre_completo""")
     comunas = q("SELECT id, nombre FROM comunas ORDER BY nombre")
-    return render_template("celulas_informe_form.html", c=None, lideres=lideres, comunas=comunas)
+    modalidades = get_catalogo("catalogo_modalidad_celula")
+    return render_template("celulas_informe_form.html", c=None, lideres=lideres, comunas=comunas, modalidades=modalidades)
 
 @app.post("/celulas-informe/nuevo")
 @login_req
@@ -1305,7 +1332,8 @@ def celulas_informe_editar(cid):
     lideres = q("""SELECT l.id, h.nombre_completo FROM lideres l
         JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY h.nombre_completo""")
     comunas = q("SELECT id, nombre FROM comunas ORDER BY nombre")
-    return render_template("celulas_informe_form.html", c=c, lideres=lideres, comunas=comunas)
+    modalidades = get_catalogo("catalogo_modalidad_celula")
+    return render_template("celulas_informe_form.html", c=c, lideres=lideres, comunas=comunas, modalidades=modalidades)
 
 @app.post("/celulas-informe/<int:cid>/editar")
 @login_req
@@ -1489,6 +1517,7 @@ CATALOGOS = [
     {"key":"estado_visita","nombre":"Estado Visita","icon":"🙋","tabla":"catalogo_estado_visita","tiene_orden":False},
     {"key":"tipo_seguimiento","nombre":"Tipo Seguimiento","icon":"📞","tabla":"catalogo_tipo_seguimiento","tiene_orden":False},
     {"key":"tipo_hermano","nombre":"Tipo Hermano","icon":"👤","tabla":"catalogo_tipo_hermano","tiene_orden":False},
+    {"key":"modalidad_celula","nombre":"Modalidad Célula","icon":"🏠","tabla":"catalogo_modalidad_celula","tiene_orden":False},
     {"key":"roles_usuario","nombre":"Roles de Usuario","icon":"🛡️","tabla":"catalogo_roles_usuario","tiene_orden":False},
 ]
 
