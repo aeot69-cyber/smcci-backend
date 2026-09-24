@@ -594,18 +594,30 @@ def hermanos():
     texto = request.args.get("q", "")
     exp = request.args.get("export", "")
     ftipo = request.args.get("ftipo","")
-    where_extra = " AND tipo_hermano=%s" if ftipo else ""
-    params_extra = (ftipo,) if ftipo else ()
+    festado = request.args.get("festado","activos")
+    where_extra = ""
+    params_extra = []
     if ftipo:
-        rows = q(f"SELECT id, codigo, nombre_completo, comuna, region, correo, telefono, tipo_hermano FROM v_hermanos_completo WHERE (nombre_completo ILIKE %s OR codigo ILIKE %s) {where_extra} ORDER BY nombre_completo LIMIT 1000",
-                 (f"%{texto}%", f"%{texto}%") + params_extra)
+        where_extra += " AND tipo_hermano=%s"
+        params_extra.append(ftipo)
+    if festado == "activos":
+        where_extra += " AND activo=true"
+    elif festado == "inactivos":
+        where_extra += " AND activo=false"
+    # todos => no filtro activo
+    base_where = "(nombre_completo ILIKE %s OR codigo ILIKE %s)"
+    # incluir rut en busqueda solo si no hay ftipo para compatibilidad
+    if not ftipo:
+        base_where = "(nombre_completo ILIKE %s OR codigo ILIKE %s OR rut ILIKE %s)"
+        base_params = (f"%{texto}%", f"%{texto}%", f"%{texto}%")
     else:
-        rows = q("SELECT id, codigo, nombre_completo, comuna, region, correo, telefono, tipo_hermano FROM v_hermanos_completo WHERE nombre_completo ILIKE %s OR codigo ILIKE %s OR rut ILIKE %s ORDER BY nombre_completo LIMIT 1000",
-                 (f"%{texto}%", f"%{texto}%", f"%{texto}%"))
-    if exp == "excel": return to_excel(rows, ["codigo", "nombre_completo", "tipo_hermano", "comuna", "region", "correo", "telefono"], "hermanos.xlsx")
+        base_params = (f"%{texto}%", f"%{texto}%")
+    rows = q(f"SELECT id, codigo, nombre_completo, comuna, region, correo, telefono, tipo_hermano, activo, motivo_salida, fecha_baja FROM v_hermanos_completo WHERE {base_where} {where_extra} ORDER BY nombre_completo LIMIT 1000",
+             base_params + tuple(params_extra))
+    if exp == "excel": return to_excel(rows, ["codigo", "nombre_completo", "tipo_hermano", "comuna", "region", "correo", "telefono", "activo", "motivo_salida", "fecha_baja"], "hermanos.xlsx")
     if exp == "pdf": return to_pdf("Hermanos MCCI", rows, ["codigo", "nombre_completo", "tipo_hermano", "comuna", "region"], "hermanos.pdf")
     tipos_hermano = get_catalogo("catalogo_tipo_hermano")
-    return render_template("hermanos.html", rows=rows, texto=texto, ftipo=ftipo, tipos_hermano=tipos_hermano)
+    return render_template("hermanos.html", rows=rows, texto=texto, ftipo=ftipo, festado=festado, tipos_hermano=tipos_hermano)
 
 @app.get("/hermanos/nuevo")
 @login_req
@@ -713,7 +725,23 @@ def hermano_update(hid):
 @login_req
 @permiso_req("hermanos", "editar")
 def hermano_toggle(hid):
-    q("UPDATE hermanos SET activo=NOT activo WHERE id=%s", (hid,), commit=True)
+    h = q("SELECT activo FROM hermanos WHERE id=%s", (hid,), one=True)
+    if not h:
+        flash("No encontrado", "error"); return redirect(url_for("hermanos"))
+    if h["activo"]:
+        # Pasa a inactivo: pedir motivo
+        motivo = (request.form.get("motivo") or "").strip() or "Salida registrada"
+        q("UPDATE hermanos SET activo=false, fecha_baja=CURRENT_DATE, motivo_salida=%s WHERE id=%s", (motivo, hid), commit=True)
+        # Cerrar discipulado y desactivar liderazgo pero conservar código e historial
+        q("UPDATE discipulado SET fecha_fin=CURRENT_DATE WHERE hermano_id=%s AND fecha_fin IS NULL", (hid,), commit=True)
+        q("UPDATE lideres SET activo=false WHERE hermano_id=%s", (hid,), commit=True)
+        log_audit("EDITAR","hermanos", f"baja id={hid} motivo={motivo}")
+        flash(f"Hermano dado de baja (inactivo) con código conservado. Motivo: {motivo}", "ok")
+    else:
+        # Reactivar
+        q("UPDATE hermanos SET activo=true, fecha_baja=NULL, motivo_salida=NULL WHERE id=%s", (hid,), commit=True)
+        log_audit("EDITAR","hermanos", f"reactiva id={hid}")
+        flash("Hermano reactivado", "ok")
     return redirect(url_for("hermanos"))
 
 @app.post("/hermanos/<int:hid>/eliminar")
