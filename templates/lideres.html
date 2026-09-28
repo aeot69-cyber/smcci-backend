@@ -21,6 +21,7 @@
 <th title="Célula">Célula</th>
 <th title="Info enviada">Info</th>
 <th title="N° células">N°</th>
+<th title="Macrocélulas a cargo del líder">Macro</th>
 <th title="Discípulos activos">Activos</th>
 {% if tiene_permiso('lideres','editar') %}<th>Modificar</th>{% endif %}</tr>
 {% for l in rows %}<tr class="fila-lider" data-nombre="{{l.lider|lower}}" data-padre="{{l.lider_padre_id or ''}}">
@@ -30,7 +31,7 @@
 <td>{{l.pastor_nombre or '-'}}</td>
 <td><span class="badge bg-primary">{{l.red or '—'}}</span></td>
 <td><span class="badge badge-12 text-white">{{l.tipo_12 or '—'}}</span></td>
-<td>{{l.estado_celula or '—'}}</td><td>{{l.info_enviada or '—'}}</td><td>{{l.cantidad_celulas}}</td><td><b>{{l.discipulos_activos}}</b></td>
+<td>{{l.estado_celula or '—'}}</td><td>{{l.info_enviada or '—'}}</td><td>{{l.cantidad_celulas}}</td><td>{{l.cantidad_macrocelulas}}</td><td><b>{{l.discipulos_activos}}</b></td>
 {% if tiene_permiso('lideres','editar') %}
 <td><form method="post" action="/lideres/{{l.lider_id}}/estado" class="d-flex gap-1 flex-wrap">
 <select name="rol" class="form-select form-select-sm" title="Rol"><option value="NINGUNO" {% if not l.rol_lider or l.rol_lider=='NINGUNO' %}selected{% endif %}>— Ninguno</option>{% if catalogos_l and catalogos_l.roles_lider %}{% for r in catalogos_l.roles_lider %}{% if r.nombre != 'NINGUNO' %}<option value="{{r.nombre}}" {% if l.rol_lider==r.nombre %}selected{% endif %}>{{r.icono or '—'}} {{r.nombre}}</option>{% endif %}{% endfor %}{% else %}<option value="PASTOR" {% if l.rol_lider=='PASTOR' %}selected{% endif %}>⭐ Pastor</option><option value="APOSTOL" {% if l.rol_lider=='APOSTOL' %}selected{% endif %}>🔻 Apóstol</option><option value="LIDER" {% if l.rol_lider=='LIDER' %}selected{% endif %}>👤 Líder</option>{% endif %}</select>
@@ -40,6 +41,7 @@
 <select name="estado" class="form-select form-select-sm" title="Célula">{% if catalogos_l and catalogos_l.estado_celula %}{% for ec in catalogos_l.estado_celula %}<option {% if l.estado_celula==ec.nombre %}selected{% endif %}>{{ec.nombre}}</option>{% endfor %}{% else %}<option {% if l.estado_celula=='CELULA ACTIVA' %}selected{% endif %}>CELULA ACTIVA</option><option {% if l.estado_celula=='SIN CELULA' %}selected{% endif %}>SIN CELULA</option><option {% if l.estado_celula=='EN FORMACION' %}selected{% endif %}>EN FORMACION</option>{% endif %}</select>
 <select name="info" class="form-select form-select-sm" title="Info">{% if catalogos_l and catalogos_l.info_enviada %}{% for ie in catalogos_l.info_enviada %}<option {% if l.info_enviada==ie.nombre %}selected{% endif %}>{{ie.nombre}}</option>{% endfor %}{% else %}<option {% if l.info_enviada=='SI' %}selected{% endif %}>SI</option><option {% if l.info_enviada=='EN CONSULTA' %}selected{% endif %}>EN CONSULTA</option><option {% if l.info_enviada=='NO' %}selected{% endif %}>NO</option>{% endif %}</select>
 <input name="celulas" size=2 value="{{l.cantidad_celulas}}" class="form-control form-control-sm" title="N° células" style="width:50px">
+<input name="macro" size=2 value="{{l.cantidad_macrocelulas}}" class="form-control form-control-sm" title="N° macrocélulas" style="width:50px">
 <button class="btn btn-sm btn-primary" title="Guardar">💾</button></form>{% endif %}
 {% if tiene_permiso('lideres','eliminar') %}<form method="post" action="/lideres/{{l.lider_id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar líder?')"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
 </td></tr>{% endfor %}</table></div>

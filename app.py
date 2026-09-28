@@ -770,8 +770,8 @@ def lideres():
         where += " AND l.lider ILIKE %s"
         params.append(f"%{texto}%")
     rows = q(f"SELECT * FROM v_lideres_conteo l {where} ORDER BY discipulos_activos DESC", tuple(params))
-    if exp == "excel": return to_excel(rows, ["codigo", "lider", "rol_lider", "pastor_nombre", "red", "tipo_12", "estado_celula", "info_enviada", "cantidad_celulas", "discipulos_activos"], "lideres.xlsx")
-    if exp == "pdf": return to_pdf("Lideres MCCI", rows, ["codigo", "lider", "rol_lider", "red", "tipo_12", "discipulos_activos"], "lideres.pdf")
+    if exp == "excel": return to_excel(rows, ["codigo", "lider", "rol_lider", "pastor_nombre", "red", "tipo_12", "estado_celula", "info_enviada", "cantidad_celulas", "cantidad_macrocelulas", "discipulos_activos"], "lideres.xlsx")
+    if exp == "pdf": return to_pdf("Lideres MCCI", rows, ["codigo", "lider", "rol_lider", "red", "tipo_12", "cantidad_celulas", "cantidad_macrocelulas", "discipulos_activos"], "lideres.pdf")
     todos = q("""SELECT l.id, h.nombre_completo AS nombre,
         (SELECT COUNT(*) FROM lideres l2 WHERE l2.lider_padre_id=l.id AND l2.activo) AS hijos
         FROM lideres l JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY h.nombre_completo""")
@@ -811,8 +811,8 @@ def lider_crear():
     f = request.form
     try:
         rol = f.get("rol") or "NINGUNO"
-        q("INSERT INTO lideres(hermano_id,red,estado_celula,info_enviada,cantidad_celulas,observacion,es_pastor,rol_lider,tipo_12,lider_padre_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-          (f["hermano"], f["red"], f["estado"], f["info"], int(f.get("celulas") or 1), f.get("obs"),
+        q("INSERT INTO lideres(hermano_id,red,estado_celula,info_enviada,cantidad_celulas,cantidad_macrocelulas,observacion,es_pastor,rol_lider,tipo_12,lider_padre_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+          (f["hermano"], f["red"], f["estado"], f["info"], int(f.get("celulas") or 1), int(f.get("macro") or 0), f.get("obs"),
            rol == "PASTOR", rol, f.get("tipo12", "NINGUNO"), f.get("padre") or None), commit=True)
         log_audit("CREAR","lideres", f"hermano={f.get('hermano')} rol={rol}")
         flash("Líder creado", "ok")
@@ -838,6 +838,7 @@ def lider_estado(lid):
             "estado_celula": f.get("estado") or act["estado_celula"],
             "info_enviada": f.get("info") or act["info_enviada"],
             "cantidad_celulas": int(f.get("celulas") or act["cantidad_celulas"]),
+            "cantidad_macrocelulas": int(f.get("macro") or act["cantidad_macrocelulas"] or 0),
             "red": f.get("red") or act["red"],
             "rol_lider": rol,
             "es_pastor": rol == "PASTOR",
@@ -850,6 +851,7 @@ def lider_estado(lid):
             "estado_celula": f.get("estado") or act["estado_celula"],
             "info_enviada": f.get("info") or act["info_enviada"],
             "cantidad_celulas": int(f.get("celulas") or act["cantidad_celulas"]),
+            "cantidad_macrocelulas": int(f.get("macro") or act["cantidad_macrocelulas"] or 0),
             "red": f.get("red") or act["red"],
             "rol_lider": rol,
             "es_pastor": rol == "PASTOR",
@@ -1417,7 +1419,9 @@ def reportes():
     r["por_12"] = q("SELECT tipo_12, COUNT(*) AS c, SUM(CASE WHEN es_pastor THEN 1 ELSE 0 END) AS pastores FROM lideres WHERE activo GROUP BY 1 ORDER BY 2 DESC")
     # Resumen único por líder + fila TOTAL (con encuentros desglosados por etapa)
     r["resumen"] = q("""SELECT v.lider, v.red, v.tipo_12, v.rol_lider, v.estado_celula, v.cantidad_celulas,
-        v.total_asignados_vigentes, v.discipulos_activos,
+        v.cantidad_macrocelulas,
+        (SELECT COUNT(*) FROM lideres c WHERE c.lider_padre_id=v.lider_id AND c.activo) AS celulas_hijas,
+        v.discipulos_activos,
         COALESCE(e.aprob_lider,0) AS enc_lider,
         COALESCE(s.tremendo,0) AS d_tremendo, COALESCE(s.fruto,0) AS d_fruto,
         COALESCE(s.reenc,0) AS d_reenc, COALESCE(s.crec,0) AS d_crec, COALESCE(s.lid,0) AS d_lid,
@@ -1437,7 +1441,11 @@ def reportes():
             JOIN tipos_encuentro t ON t.id=ep.tipo_encuentro_id
             WHERE d.fecha_fin IS NULL AND d.es_discipulo_activo GROUP BY 1) s ON s.lider_id=v.lider_id
         ORDER BY v.discipulos_activos DESC""")
-    tot = q("SELECT COUNT(*) AS lideres, COALESCE(SUM(discipulos_activos),0) AS activos, COALESCE(SUM(total_asignados_vigentes),0) AS asignados FROM v_lideres_conteo", one=True)
+    tot = q("""SELECT COUNT(*) AS lideres, COALESCE(SUM(discipulos_activos),0) AS activos,
+        COALESCE(SUM(total_asignados_vigentes),0) AS asignados,
+        COALESCE(SUM(cantidad_macrocelulas),0) AS macro,
+        (SELECT COUNT(*) FROM lideres l2 WHERE l2.activo AND l2.lider_padre_id IS NOT NULL) AS hijos
+        FROM v_lideres_conteo""", one=True)
     r["total"] = tot
     # Totales de encuentros para la fila TOTAL
     te = q("""SELECT COALESCE(SUM(CASE WHEN ep.estado='APROBADO' AND ep.hermano_id=l.hermano_id THEN 1 ELSE 0 END),0) AS enc_lideres,
@@ -1450,7 +1458,7 @@ def reportes():
         "sin_celula": ("Sin celula", ["nombre_completo", "red"]), "pendientes": ("Pendientes", ["nombre_completo", "etapa", "fecha"]),
         "ruta_incompleta": ("Ruta incompleta", ["nombre_completo"]), "periodicidad": ("Periodicidad", ["nombre", "c"]),
         "por_12": ("Por Tipo 12", ["tipo_12", "c", "pastores"]),
-        "resumen": ("Resumen por lider (unico + total)", ["lider", "red", "tipo_12", "rol_lider", "estado_celula", "discipulos_activos", "enc_lider", "d_tremendo", "d_fruto", "d_reenc", "d_crec", "d_lid", "disc_enc_aprob"])}
+        "resumen": ("Resumen por lider (unico + total)", ["lider", "red", "tipo_12", "rol_lider", "estado_celula", "celulas_hijas", "cantidad_macrocelulas", "discipulos_activos", "enc_lider", "d_tremendo", "d_fruto", "d_reenc", "d_crec", "d_lid"])}
     if exp in ("excel", "pdf"):
         if ver == "todos":
             all_rows = []
