@@ -1002,19 +1002,23 @@ def encuentros():
 @login_req
 @permiso_req("encuentros", "crear")
 def enc_nuevo():
+    from datetime import date
     return render_template("enc_form.html",
         hermanos=q("SELECT id,nombre_completo FROM hermanos WHERE activo ORDER BY 2"),
-        tipos=q("SELECT * FROM tipos_encuentro ORDER BY orden"))
+        tipos=q("SELECT * FROM tipos_encuentro ORDER BY orden"),
+        fecha_hoy=date.today().isoformat())
 
 @app.post("/encuentros/nuevo")
 @login_req
 @permiso_req("encuentros", "crear")
 def enc_crear():
+    from datetime import date
     f = request.form
     try:
+        fecha = f.get("fecha") or date.today().isoformat()
         q("""INSERT INTO encuentro_participacion(hermano_id,tipo_encuentro_id,estado,fecha_evento) VALUES(%s,%s,%s,%s)
              ON CONFLICT (hermano_id,tipo_encuentro_id) DO UPDATE SET estado=EXCLUDED.estado,fecha_evento=EXCLUDED.fecha_evento""",
-          (f["hermano"], f["tipo"], f["estado"], f.get("fecha") or None), commit=True)
+          (f["hermano"], f["tipo"], f["estado"], fecha), commit=True)
         log_audit("CREAR","encuentros", f"h={f.get('hermano')} tipo={f.get('tipo')}")
         flash("Encuentro registrado", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
@@ -1046,11 +1050,12 @@ def enc_masivo():
 @login_req
 @permiso_req("encuentros", "crear")
 def enc_masivo_guardar():
+    from datetime import date
     f = request.form
     discs = f.getlist("disc")
     tipo = f["tipo"]
     estado = f["estado"]
-    fecha = f.get("fecha") or None
+    fecha = f.get("fecha") or date.today().isoformat()
     if not discs:
         flash("Seleccioná al menos un discípulo", "error")
         return redirect(url_for("enc_masivo", lider=f.get("lider","")))
