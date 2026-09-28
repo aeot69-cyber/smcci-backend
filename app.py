@@ -908,7 +908,8 @@ def discipulado():
     full = q(f"""SELECT d.id,h.nombre_completo AS hermano,hl.nombre_completo AS lider,p.nombre AS periodicidad,
         l.tipo_12,d.es_discipulo_activo,d.fecha_asignacion,d.fecha_fin {base}
         ORDER BY d.fecha_fin NULLS FIRST, d.fecha_asignacion DESC LIMIT 1000""", params)
-    return render_template("discipulado.html", rows=full, texto=texto, f12=f12)
+    return render_template("discipulado.html", rows=full, texto=texto, f12=f12,
+        tipos12=get_catalogo("catalogo_tipo12"))
 
 @app.get("/discipulado/nuevo")
 @login_req
@@ -1454,11 +1455,13 @@ def reportes():
         LEFT JOIN encuentro_participacion ep ON ep.hermano_id=d.hermano_id
         WHERE d.fecha_fin IS NULL AND d.es_discipulo_activo""", one=True)
     r["total_enc"] = te
+    r["padre-discipulos"] = q("SELECT lider, tipo_12, n_hijos, discipulos_activos FROM v_lideres_padre_con_discipulos WHERE n_hijos > 0 AND discipulos_activos > 0 ORDER BY n_hijos DESC, discipulos_activos DESC LIMIT 50")
     catalog = {"por_red": ("Reporte por red", ["red", "estado_celula", "c"]), "por_comuna": ("Reporte por comuna", ["region", "comuna", "c"]),
         "sin_celula": ("Sin celula", ["nombre_completo", "red"]), "pendientes": ("Pendientes", ["nombre_completo", "etapa", "fecha"]),
         "ruta_incompleta": ("Ruta incompleta", ["nombre_completo"]), "periodicidad": ("Periodicidad", ["nombre", "c"]),
         "por_12": ("Por Tipo 12", ["tipo_12", "c", "pastores"]),
-        "resumen": ("Resumen por lider (unico + total)", ["lider", "red", "tipo_12", "rol_lider", "estado_celula", "celulas_hijas", "cantidad_macrocelulas", "discipulos_activos", "enc_lider", "d_tremendo", "d_fruto", "d_reenc", "d_crec", "d_lid"])}
+        "resumen": ("Resumen por lider (unico + total)", ["lider", "red", "tipo_12", "rol_lider", "estado_celula", "celulas_hijas", "cantidad_macrocelulas", "discipulos_activos", "enc_lider", "d_tremendo", "d_fruto", "d_reenc", "d_crec", "d_lid"]),
+        "padre-discipulos": ("Líderes con hijos + discipulos a cargo", ["lider", "tipo_12", "n_hijos", "discipulos_activos"])}
     if exp in ("excel", "pdf"):
         if ver == "todos":
             all_rows = []
