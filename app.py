@@ -50,9 +50,12 @@ def db():
     db_url = os.environ.get("DATABASE_URL", "")
     if db_url:
         try:
-            from urllib.parse import urlparse
+            from urllib.parse import urlparse, parse_qs
             u = urlparse(db_url)
-            conn = psycopg2.connect(host=u.hostname, port=u.port or 5432, dbname=u.path.lstrip("/"), user=u.username, password=u.password, cursor_factory=RealDictCursor, connect_timeout=5)
+            # Supabase exige SSL: pasar ?sslmode=require en el DATABASE_URL.
+            # Por defecto 'prefer' (comportamiento anterior, ej. Render/local).
+            sslmode = parse_qs(u.query).get("sslmode", ["prefer"])[0]
+            conn = psycopg2.connect(host=u.hostname, port=u.port or 5432, dbname=u.path.lstrip("/"), user=u.username, password=u.password, sslmode=sslmode, cursor_factory=RealDictCursor, connect_timeout=5)
             try: g._db_conn = conn
             except RuntimeError: pass
             return conn
