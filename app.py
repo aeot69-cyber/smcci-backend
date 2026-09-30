@@ -279,7 +279,9 @@ def log_audit(accion, modulo, detalle=""):
         uid = session.get("uid")
         user = session.get("user", "")
         rol = session.get("rol", "")
-        ip = request.remote_addr or ""
+        # IP real: detrás de proxy (Render/Koyeb) remote_addr es la IP interna
+        # del proxy; la del cliente viene en X-Forwarded-For (primera = origen).
+        ip = (request.headers.get("X-Forwarded-For", "") or "").split(",")[0].strip() or (request.remote_addr or "")
         q("INSERT INTO auditoria(usuario_id, username, rol, accion, modulo, detalle, ip) VALUES(%s,%s,%s,%s,%s,%s,%s)",
           (uid, user, rol, accion, modulo, detalle[:500] if detalle else "", ip), commit=True)
     except Exception as e:
