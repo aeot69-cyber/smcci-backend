@@ -6,7 +6,7 @@ from functools import wraps
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, session, redirect, url_for, render_template, flash, abort, send_file
+from flask import Flask, request, jsonify, session, redirect, url_for, render_template, flash, abort, send_file, make_response
 from werkzeug.security import check_password_hash
 from io import BytesIO
 from openpyxl import Workbook
@@ -313,7 +313,8 @@ def to_pdf(title, rows, headers, filename):
 LOGIN_FALLOS_USER   = 5     # claves incorrectas por usuario (ventana) → bloqueo
 LOGIN_FALLOS_IP     = 30    # intentos fallidos por IP    (ventana) → bloqueo
 LOGIN_VENTANA_MIN   = 15    # ventana de conteo en minutos
-LOGIN_BLOQUEO_MIN   = 15    # duración del bloqueo en minutos
+BLOQUEO_DURACIONES  = (15, 60, 1440)   # minutos por nivel: 1ª vez, 2ª vez, 3ª vez en adelante
+BLOQUEO_MEMORIA_DIAS = 7    # cuántos días se recuerda para escalar el bloqueo
 RECUPERAR_USER_HORA = 3     # recuperaciones de clave por usuario/hora
 RECUPERAR_IP_HORA   = 10    # recuperaciones de clave por IP/hora
 LOGIN_ESPERA_SEG    = 1.5   # tiempo mínimo de llenado del formulario
@@ -332,9 +333,71 @@ def registrar_intento(username, ip, exito, detalle=""):
     except Exception as e:
         print(f"registrar_intento failed: {e}")
 
+def _bloqueos_recientes(detalle, usuario, ip):
+    """Minutos transcurridos desde cada activación de bloqueo de la ventana (la más nueva al final).
+    'bloqueo_user' se cuenta por usuario; 'bloqueo_ip' por IP (así un atacante que cambia de
+    usuario en la misma IP también escala)."""
+    if detalle == "bloqueo_user":
+        return q("""SELECT extract(epoch from (now() - creado))/60 AS transcurridas
+            FROM intentos_login
+            WHERE detalle=%s AND username=%s
+              AND creado > now() - make_interval(days => %s)
+            ORDER BY creado""", (detalle, usuario or "", BLOQUEO_MEMORIA_DIAS))
+    return q("""SELECT extract(epoch from (now() - creado))/60 AS transcurridas
+        FROM intentos_login
+        WHERE detalle=%s AND ip=%s
+          AND creado > now() - make_interval(days => %s)
+        ORDER BY creado""", (detalle, ip or "", BLOQUEO_MEMORIA_DIAS))
+
+def _bloqueo_activo(detalle, usuario, ip):
+    """(minutos_restantes, nivel) si hay un bloqueo vigente; None si no lo hay."""
+    try:
+        filas = _bloqueos_recientes(detalle, usuario, ip)
+    except Exception as e:
+        print(f"_bloqueo_activo failed: {e}")
+        return None
+    if not filas:
+        return None
+    nivel = min(len(filas), len(BLOQUEO_DURACIONES))
+    duracion = BLOQUEO_DURACIONES[nivel - 1]
+    restantes = duracion - float(filas[-1]["transcurridas"] or 0)
+    return (restantes, nivel) if restantes > 0 else None
+
+def _activar_bloqueo(detalle, usuario, ip):
+    """Registra la activación de un bloqueo nuevo y devuelve (minutos, nivel) que le corresponde."""
+    registrar_intento(usuario if detalle == "bloqueo_user" else "", ip, False, detalle)
+    try:
+        nivel = min(len(_bloqueos_recientes(detalle, usuario, ip) or []), len(BLOQUEO_DURACIONES))
+    except Exception:
+        nivel = 0
+    nivel = max(nivel, 1)
+    return BLOQUEO_DURACIONES[nivel - 1], nivel
+
+def texto_espera(minutos):
+    """15 → '15 minutos'; 60 → '1 hora'; 1440 → '24 horas'."""
+    m = max(int(round(minutos)), 1)
+    if m >= 120:
+        h = round(m / 60)
+        return f"{h} horas"
+    if m >= 60:
+        return "1 hora"
+    return f"{m} minutos"
+
 def minutos_bloqueo(username, ip):
-    """Minutos restantes de bloqueo (0 = puede intentar). Cuenta solo los fallos
-    posteriores al último login correcto, así un usuario válido no queda castigado."""
+    """Minutos restantes de bloqueo (0 = puede intentar).
+    - Un bloqueo vigente manda sobre el conteo (la ventana de fallos es más corta
+      que los bloqueos de nivel alto, si no se liberaría demasiado pronto).
+    - Al superar el umbral se ACTIVA un bloqueo nuevo y este escala mientras siga
+      reincidiendo: 15 min → 1 hora → 24 horas (memoria de 7 días), por usuario
+      y por IP por separado.
+    - Solo cuentan fallos posteriores al último login correcto, así un usuario
+      válido no queda castigado."""
+    # 0) ¿Hay un bloqueo vigente?
+    for detalle, usuario in (("bloqueo_user", username), ("bloqueo_ip", "")):
+        b = _bloqueo_activo(detalle, usuario, ip)
+        if b:
+            return max(b[0], 1)
+    # 1) ¿Se superó el umbral? → activar bloqueo nuevo (escala)
     try:
         row = q("""
             SELECT
@@ -354,8 +417,10 @@ def minutos_bloqueo(username, ip):
              ip or "", LOGIN_VENTANA_MIN, ip or ""), one=True)
         if not row:
             return 0
-        if (row["fallos_user"] or 0) >= LOGIN_FALLOS_USER or (row["fallos_ip"] or 0) >= LOGIN_FALLOS_IP:
-            return LOGIN_BLOQUEO_MIN
+        if (row["fallos_user"] or 0) >= LOGIN_FALLOS_USER:
+            return _activar_bloqueo("bloqueo_user", username or "", ip)[0]
+        if (row["fallos_ip"] or 0) >= LOGIN_FALLOS_IP:
+            return _activar_bloqueo("bloqueo_ip", "", ip)[0]
     except Exception as e:
         print(f"minutos_bloqueo failed: {e}")
     return 0
@@ -394,11 +459,12 @@ def login_post():
     u = request.form.get("username", "").strip()
     p = request.form.get("password", "")
     ip = ip_cliente()
-    # 1) ¿Bloqueado por intentos fallidos?
-    if minutos_bloqueo(u, ip):
+    # 1) ¿Bloqueado por intentos fallidos? (escala 15 min → 1 h → 24 h)
+    mins = minutos_bloqueo(u, ip)
+    if mins:
         registrar_intento(u, ip, False, "bloqueado")
         log_audit("LOGIN_BLOQUEADO", "usuarios", f"bloqueado {u or '-'} ip {ip}")
-        flash(f"Demasiados intentos fallidos. Espere {LOGIN_BLOQUEO_MIN} minutos antes de volver a intentar.", "error")
+        flash(f"Demasiados intentos fallidos. Espere {texto_espera(mins)} antes de volver a intentar.", "error")
         return redirect(url_for("login"))
     # 2) Captcha + campo trampa + tiempo mínimo
     err = chequear_form_seguro("captcha_login")
@@ -1627,10 +1693,13 @@ def api_login():
     p = data.get("password") or ""
     ip = ip_cliente()
     # Mismo bloqueo que /login (si no, un bot usaría la API para saltarse el límite)
-    if minutos_bloqueo(u, ip):
+    mins = minutos_bloqueo(u, ip)
+    if mins:
         registrar_intento(u, ip, False, "bloqueado")
         log_audit("LOGIN_BLOQUEADO", "usuarios", f"api bloqueado {u} ip {ip}")
-        abort(429)
+        resp = make_response("Demasiados intentos fallidos", 429)
+        resp.headers["Retry-After"] = str(int(mins * 60))   # segundos para reintentar
+        return resp
     row = q("SELECT id,password_hash,rol FROM usuarios WHERE username=%s AND activo", (u,), one=True)
     if not row or not check_password_hash(row["password_hash"], p):
         registrar_intento(u, ip, False, "credenciales")
