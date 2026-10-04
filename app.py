@@ -1,5 +1,7 @@
 """SMCCI - Sistema Consolidación MCCI (Flask + Postgres). CRUD + Reportes con menú."""
 import os
+import time
+import random
 from functools import wraps
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -307,16 +309,110 @@ def to_pdf(title, rows, headers, filename):
     buf = BytesIO(pdf.output())
     return send_file(buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
 
+# ---------- PROTECCIÓN ANTI-BOTS EN LOGIN ----------
+LOGIN_FALLOS_USER   = 5     # claves incorrectas por usuario (ventana) → bloqueo
+LOGIN_FALLOS_IP     = 30    # intentos fallidos por IP    (ventana) → bloqueo
+LOGIN_VENTANA_MIN   = 15    # ventana de conteo en minutos
+LOGIN_BLOQUEO_MIN   = 15    # duración del bloqueo en minutos
+RECUPERAR_USER_HORA = 3     # recuperaciones de clave por usuario/hora
+RECUPERAR_IP_HORA   = 10    # recuperaciones de clave por IP/hora
+LOGIN_ESPERA_SEG    = 1.5   # tiempo mínimo de llenado del formulario
+
+def ip_cliente():
+    """IP real del cliente: detrás del proxy de Render, remote_addr es la IP
+    interna del proxy; la del cliente viene en X-Forwarded-For (primera = origen)."""
+    return (request.headers.get("X-Forwarded-For", "") or "").split(",")[0].strip() or (request.remote_addr or "")
+
+def registrar_intento(username, ip, exito, detalle=""):
+    """Guarda un intento de login y purga los mayores a 30 días. Nunca rompe el login."""
+    try:
+        q("""WITH viejos AS (DELETE FROM intentos_login WHERE creado < now() - make_interval(days => 30))
+             INSERT INTO intentos_login(ip, username, exito, detalle) VALUES(%s,%s,%s,%s)""",
+          (ip or "", (username or "")[:100], bool(exito), (detalle or "")[:50]), commit=True)
+    except Exception as e:
+        print(f"registrar_intento failed: {e}")
+
+def minutos_bloqueo(username, ip):
+    """Minutos restantes de bloqueo (0 = puede intentar). Cuenta solo los fallos
+    posteriores al último login correcto, así un usuario válido no queda castigado."""
+    try:
+        row = q("""
+            SELECT
+              (SELECT count(*) FROM intentos_login x
+                 WHERE NOT x.exito AND x.detalle='credenciales' AND x.username=%s
+                   AND x.creado > now() - make_interval(mins => %s)
+                   AND x.creado > COALESCE((SELECT max(y.creado) FROM intentos_login y
+                                            WHERE y.exito AND y.username=%s), '-infinity'::timestamp)
+              ) AS fallos_user,
+              (SELECT count(*) FROM intentos_login x
+                 WHERE NOT x.exito AND x.ip=%s
+                   AND x.creado > now() - make_interval(mins => %s)
+                   AND x.creado > COALESCE((SELECT max(y.creado) FROM intentos_login y
+                                            WHERE y.exito AND y.ip=%s), '-infinity'::timestamp)
+              ) AS fallos_ip""",
+            (username or "", LOGIN_VENTANA_MIN, username or "",
+             ip or "", LOGIN_VENTANA_MIN, ip or ""), one=True)
+        if not row:
+            return 0
+        if (row["fallos_user"] or 0) >= LOGIN_FALLOS_USER or (row["fallos_ip"] or 0) >= LOGIN_FALLOS_IP:
+            return LOGIN_BLOQUEO_MIN
+    except Exception as e:
+        print(f"minutos_bloqueo failed: {e}")
+    return 0
+
+def nuevo_captcha(clave):
+    """Genera una suma sencilla, la guarda en la sesión y devuelve el texto a mostrar."""
+    a, b = random.randint(1, 9), random.randint(1, 9)
+    session[clave] = a + b
+    session[clave + "_ts"] = time.time()
+    return f"¿Cuánto es {a} + {b}?"
+
+def chequear_form_seguro(clave):
+    """Valida captcha + campo trampa (honeypot) + tiempo mínimo de llenado.
+    Devuelve mensaje de error, o None si todo está bien."""
+    esperado = session.pop(clave, None)
+    ts = session.pop(clave + "_ts", None)
+    if (request.form.get("sitio") or "").strip():
+        return "Solicitud rechazada."          # campo trampa: lo llenó un robot
+    if esperado is None:
+        return "La sesión expiró. Recargue la página e intente de nuevo."
+    resp = (request.form.get("captcha") or "").strip()
+    if not resp.isdigit() or int(resp) != int(esperado):
+        return "Verificación incorrecta. Revise la respuesta e intente de nuevo."
+    if ts and (time.time() - float(ts)) < LOGIN_ESPERA_SEG:
+        return "Envío demasiado rápido. Espere un momento y reintente."
+    return None
+
 # ---------- AUTH ----------
 @app.get("/login")
-def login(): return render_template("login.html")
+def login():
+    pregunta = nuevo_captcha("captcha_login")
+    return render_template("login.html", captcha_pregunta=pregunta)
 
 @app.post("/login")
 def login_post():
-    u, p = request.form.get("username", ""), request.form.get("password", "")
+    u = request.form.get("username", "").strip()
+    p = request.form.get("password", "")
+    ip = ip_cliente()
+    # 1) ¿Bloqueado por intentos fallidos?
+    if minutos_bloqueo(u, ip):
+        registrar_intento(u, ip, False, "bloqueado")
+        log_audit("LOGIN_BLOQUEADO", "usuarios", f"bloqueado {u or '-'} ip {ip}")
+        flash(f"Demasiados intentos fallidos. Espere {LOGIN_BLOQUEO_MIN} minutos antes de volver a intentar.", "error")
+        return redirect(url_for("login"))
+    # 2) Captcha + campo trampa + tiempo mínimo
+    err = chequear_form_seguro("captcha_login")
+    if err:
+        registrar_intento(u, ip, False, "honeypot" if err.startswith("Solicitud") else ("rapido" if "rápido" in err else "captcha"))
+        flash(err, "error")
+        return redirect(url_for("login"))
+    # 3) Credenciales
     row = q("SELECT id,password_hash,rol,primer_login FROM usuarios WHERE username=%s AND activo", (u,), one=True)
     if not row or not check_password_hash(row["password_hash"], p):
+        registrar_intento(u, ip, False, "credenciales")
+        log_audit("LOGIN_FALLIDO", "usuarios", f"login fallido {u} ip {ip}")
         flash("Usuario o clave inválidos", "error"); return redirect(url_for("login"))
+    registrar_intento(u, ip, True, "web")      # login correcto: resetea contadores
     session["uid"], session["rol"], session["user"] = row["id"], row["rol"], u
     q("UPDATE usuarios SET ultimo_login=now() WHERE id=%s", (row["id"],), commit=True)
     log_audit("LOGIN", "usuarios", f"login {u}")
@@ -363,12 +459,39 @@ def cambiar_clave_post():
 
 # ---------- RECUPERAR CONTRASEÑA ----------
 @app.get("/recuperar")
-def recuperar(): return render_template("recuperar.html")
+def recuperar():
+    pregunta = nuevo_captcha("captcha_rec")
+    return render_template("recuperar.html", captcha_pregunta=pregunta)
 
 @app.post("/recuperar")
 def recuperar_post():
     from werkzeug.security import generate_password_hash
     u = request.form.get("username","").strip()
+    ip = ip_cliente()
+    # Límite: si ya se pidieron demasiadas recuperaciones, se corta (evita que
+    # un bot deje claves de otros usuarios en "primer login" sin control).
+    try:
+        row = q("""SELECT
+            (SELECT count(*) FROM intentos_login
+              WHERE detalle='recuperar' AND username=%s
+                AND creado > now() - make_interval(hours => 1)) AS n_user,
+            (SELECT count(*) FROM intentos_login
+              WHERE detalle='recuperar' AND ip=%s
+                AND creado > now() - make_interval(hours => 1)) AS n_ip""", (u, ip), one=True)
+        if row and ((row["n_user"] or 0) >= RECUPERAR_USER_HORA or (row["n_ip"] or 0) >= RECUPERAR_IP_HORA):
+            registrar_intento(u, ip, False, "recuperar")
+            log_audit("RECUPERAR_BLOQUEADO", "usuarios", f"recuperar bloqueado {u} ip {ip}")
+            flash("Demasiadas solicitudes de recuperación. Intente más tarde o contacte al administrador.", "error")
+            return redirect(url_for("recuperar"))
+    except Exception as e:
+        print(f"limite recuperar failed: {e}")
+    # Captcha + campo trampa + tiempo mínimo (mismo escudo del login)
+    err = chequear_form_seguro("captcha_rec")
+    if err:
+        registrar_intento(u, ip, False, "honeypot" if err.startswith("Solicitud") else ("rapido" if "rápido" in err else "captcha"))
+        flash(err, "error")
+        return redirect(url_for("recuperar"))
+    registrar_intento(u, ip, False, "recuperar")   # cuenta para el límite por hora
     row = q("""SELECT u.id, u.username, u.lider_id, h.nombre_completo AS nombre_user
         FROM usuarios u LEFT JOIN lideres l ON l.id=u.lider_id
         LEFT JOIN hermanos h ON h.id=u.hermano_id
@@ -387,6 +510,7 @@ def recuperar_post():
     temp = generar_clave_temporal()
     q("UPDATE usuarios SET password_hash=%s, primer_login=TRUE WHERE id=%s",
       (generate_password_hash(temp), row["id"]), commit=True)
+    log_audit("RECUPERAR_CLAVE", "usuarios", f"recuperación solicitada para {u} ip {ip}")
     asunto = "SMCCI - Recuperación de Contraseña"
     cuerpo = f"""<html><body style="font-family:Arial,sans-serif">
     <div style="max-width:500px;margin:auto;padding:20px;border:1px solid #ddd;border-radius:10px">
@@ -1499,10 +1623,22 @@ def reportes():
 @app.post("/api/login")
 def api_login():
     data = request.get_json(force=True)
-    u = q("SELECT id,password_hash,rol FROM usuarios WHERE username=%s AND activo", (data.get("user"),), one=True)
-    if not u or not check_password_hash(u["password_hash"], data.get("password", "")): abort(401)
-    session["uid"], session["rol"] = u["id"], u["rol"]
-    return {"ok": True, "rol": u["rol"]}
+    u = (data.get("user") or "").strip()
+    p = data.get("password") or ""
+    ip = ip_cliente()
+    # Mismo bloqueo que /login (si no, un bot usaría la API para saltarse el límite)
+    if minutos_bloqueo(u, ip):
+        registrar_intento(u, ip, False, "bloqueado")
+        log_audit("LOGIN_BLOQUEADO", "usuarios", f"api bloqueado {u} ip {ip}")
+        abort(429)
+    row = q("SELECT id,password_hash,rol FROM usuarios WHERE username=%s AND activo", (u,), one=True)
+    if not row or not check_password_hash(row["password_hash"], p):
+        registrar_intento(u, ip, False, "credenciales")
+        log_audit("LOGIN_FALLIDO", "usuarios", f"api login fallido {u} ip {ip}")
+        abort(401)
+    registrar_intento(u, ip, True, "api")
+    session["uid"], session["rol"] = row["id"], row["rol"]
+    return {"ok": True, "rol": row["rol"]}
 
 @app.get("/api/lideres")
 def api_lideres():
