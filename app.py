@@ -335,6 +335,19 @@ def turnstile_sitekey_visible():
     site, secret = claves_turnstile()
     return site if (site and secret) else ""
 
+def _ip_privada(ip):
+    """¿IP local/privada? Solo se le informa a Cloudflare la IP pública real:
+    127.0.0.1 (desarrollo local) o IPs de red interna no aportan nada."""
+    try:
+        p = ip.split(".")
+        if len(p) == 4 and all(x.isdigit() for x in p):
+            a, b = int(p[0]), int(p[1])
+            return (a == 127 or a == 10 or (a == 172 and 16 <= b <= 31)
+                    or (a == 192 and b == 168) or (a == 169 and b == 254))
+    except Exception:
+        pass
+    return ip.startswith(("::1", "fc", "fd", "fe80"))
+
 def verificar_turnstile(token):
     """Verifica el token de Turnstile contra el servidor de Cloudflare.
     - Sin claves configuradas → True (sigue vigente el escudo anterior).
@@ -348,8 +361,11 @@ def verificar_turnstile(token):
         return False
     try:
         import urllib.request, urllib.parse, json as _json
-        datos = urllib.parse.urlencode({"secret": secret, "response": token,
-                                        "remoteip": ip_cliente()}).encode()
+        campos = {"secret": secret, "response": token}
+        ip = ip_cliente()
+        if ip and not _ip_privada(ip):
+            campos["remoteip"] = ip
+        datos = urllib.parse.urlencode(campos).encode()
         req = urllib.request.Request(TURNSTILE_URL, data=datos)
         with urllib.request.urlopen(req, timeout=6) as r:
             res = _json.loads(r.read().decode())
