@@ -39,6 +39,23 @@ app.secret_key = os.environ.get("SECRET_KEY", "cambiar-en-produccion")
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("FLASK_ENV") == "production", PERMANENT_SESSION_LIFETIME=3600)
 
+# ---------- DOMINIO OFICIAL ----------
+# Que todos entren por smcci.iglesiamcci.cl: cualquier otro host (p. ej. el
+# dominio de Render) redirige aquí en GET/HEAD conservando ruta y consulta.
+# /api/* no se toca (consumidores programáticos) y localhost/127.0.0.1 quedan
+# exentos para desarrollo local. El host se puede cambiar con DOMINIO_OFICIAL.
+DOMINIO_OFICIAL = os.environ.get("DOMINIO_OFICIAL", "smcci.iglesiamcci.cl").strip().lower()
+
+@app.before_request
+def _redirigir_dominio_oficial():
+    if request.method not in ("GET", "HEAD") or request.path.startswith("/api/"):
+        return None
+    host = (request.host or "").split(":")[0].strip().lower()
+    if host and host not in (DOMINIO_OFICIAL, "localhost", "127.0.0.1"):
+        destino = "https://" + DOMINIO_OFICIAL + (request.full_path if request.query_string else request.path)
+        return redirect(destino, code=308)
+    return None
+
 def db():
     # Reusa una sola conexión por request (evita 23 handshakes en /configuracion → evita timeout en Render)
     try:
