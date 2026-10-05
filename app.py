@@ -319,6 +319,45 @@ RECUPERAR_USER_HORA = 3     # recuperaciones de clave por usuario/hora
 RECUPERAR_IP_HORA   = 10    # recuperaciones de clave por IP/hora
 LOGIN_ESPERA_SEG    = 1.5   # tiempo mínimo de llenado del formulario
 
+# --- Cloudflare Turnstile (CAPTCHA invisible) ---
+# Se activa SOLO si hay ambas claves en el entorno (TURNSTILE_SITE_KEY y
+# TURNSTILE_SECRET_KEY). Sin claves, el escudo sigue siendo el anterior
+# (captcha matemático + honeypot + bloqueo exponencial) — fail-open documentado.
+TURNSTILE_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+def claves_turnstile():
+    """(site_key, secret_key) desde el entorno. Vacías = Turnstile desactivado."""
+    return (os.environ.get("TURNSTILE_SITE_KEY", "").strip(),
+            os.environ.get("TURNSTILE_SECRET_KEY", "").strip())
+
+def turnstile_sitekey_visible():
+    """Site key solo si está completa la pareja (para inyectar el widget)."""
+    site, secret = claves_turnstile()
+    return site if (site and secret) else ""
+
+def verificar_turnstile(token):
+    """Verifica el token de Turnstile contra el servidor de Cloudflare.
+    - Sin claves configuradas → True (sigue vigente el escudo anterior).
+    - Con claves → False si falta el token o Cloudflare lo rechaza.
+    - Si Cloudflare no responde (caída externa) → True: no se deja fuera a los
+      usuarios por un fallo de terceros; el bloqueo por intentos sigue activo."""
+    site, secret = claves_turnstile()
+    if not (site and secret):
+        return True
+    if not token:
+        return False
+    try:
+        import urllib.request, urllib.parse, json as _json
+        datos = urllib.parse.urlencode({"secret": secret, "response": token,
+                                        "remoteip": ip_cliente()}).encode()
+        req = urllib.request.Request(TURNSTILE_URL, data=datos)
+        with urllib.request.urlopen(req, timeout=6) as r:
+            res = _json.loads(r.read().decode())
+        return bool(res.get("success"))
+    except Exception as e:
+        print(f"turnstile verify failed: {e}")
+        return True
+
 def ip_cliente():
     """IP real del cliente: detrás del proxy de Render, remote_addr es la IP
     interna del proxy; la del cliente viene en X-Forwarded-For (primera = origen)."""
@@ -433,26 +472,31 @@ def nuevo_captcha(clave):
     return f"¿Cuánto es {a} + {b}?"
 
 def chequear_form_seguro(clave):
-    """Valida captcha + campo trampa (honeypot) + tiempo mínimo de llenado.
-    Devuelve mensaje de error, o None si todo está bien."""
+    """Valida honeypot + captcha matemático + CAPTCHA Turnstile + tiempo mínimo.
+    Devuelve (mensaje_de_error, tipo) — (None, None) si todo está bien.
+    El tipo se guarda en intentos_login (estos fallos cuentan por IP, no por
+    usuario, para que nadie pueda bloquear una cuenta ajena desde fuera)."""
     esperado = session.pop(clave, None)
     ts = session.pop(clave + "_ts", None)
     if (request.form.get("sitio") or "").strip():
-        return "Solicitud rechazada."          # campo trampa: lo llenó un robot
+        return "Solicitud rechazada.", "honeypot"      # campo trampa: lo llenó un robot
     if esperado is None:
-        return "La sesión expiró. Recargue la página e intente de nuevo."
+        return "La sesión expiró. Recargue la página e intente de nuevo.", "sesion"
     resp = (request.form.get("captcha") or "").strip()
     if not resp.isdigit() or int(resp) != int(esperado):
-        return "Verificación incorrecta. Revise la respuesta e intente de nuevo."
+        return "Verificación incorrecta. Revise la respuesta e intente de nuevo.", "captcha"
+    if not verificar_turnstile(request.form.get("cf-turnstile-response", "")):
+        return "Verificación anti-bot fallida. Espere un segundo y reintente, o recargue la página.", "turnstile"
     if ts and (time.time() - float(ts)) < LOGIN_ESPERA_SEG:
-        return "Envío demasiado rápido. Espere un momento y reintente."
-    return None
+        return "Envío demasiado rápido. Espere un momento y reintente.", "rapido"
+    return None, None
 
 # ---------- AUTH ----------
 @app.get("/login")
 def login():
     pregunta = nuevo_captcha("captcha_login")
-    return render_template("login.html", captcha_pregunta=pregunta)
+    return render_template("login.html", captcha_pregunta=pregunta,
+                           turnstile_sitekey=turnstile_sitekey_visible())
 
 @app.post("/login")
 def login_post():
@@ -466,10 +510,10 @@ def login_post():
         log_audit("LOGIN_BLOQUEADO", "usuarios", f"bloqueado {u or '-'} ip {ip}")
         flash(f"Demasiados intentos fallidos. Espere {texto_espera(mins)} antes de volver a intentar.", "error")
         return redirect(url_for("login"))
-    # 2) Captcha + campo trampa + tiempo mínimo
-    err = chequear_form_seguro("captcha_login")
+    # 2) Honeypot + captcha matemático + Turnstile + tiempo mínimo
+    err, tipo = chequear_form_seguro("captcha_login")
     if err:
-        registrar_intento(u, ip, False, "honeypot" if err.startswith("Solicitud") else ("rapido" if "rápido" in err else "captcha"))
+        registrar_intento(u, ip, False, tipo)
         flash(err, "error")
         return redirect(url_for("login"))
     # 3) Credenciales
@@ -527,7 +571,8 @@ def cambiar_clave_post():
 @app.get("/recuperar")
 def recuperar():
     pregunta = nuevo_captcha("captcha_rec")
-    return render_template("recuperar.html", captcha_pregunta=pregunta)
+    return render_template("recuperar.html", captcha_pregunta=pregunta,
+                           turnstile_sitekey=turnstile_sitekey_visible())
 
 @app.post("/recuperar")
 def recuperar_post():
@@ -551,10 +596,10 @@ def recuperar_post():
             return redirect(url_for("recuperar"))
     except Exception as e:
         print(f"limite recuperar failed: {e}")
-    # Captcha + campo trampa + tiempo mínimo (mismo escudo del login)
-    err = chequear_form_seguro("captcha_rec")
+    # Honeypot + captcha matemático + Turnstile + tiempo mínimo (mismo escudo del login)
+    err, tipo = chequear_form_seguro("captcha_rec")
     if err:
-        registrar_intento(u, ip, False, "honeypot" if err.startswith("Solicitud") else ("rapido" if "rápido" in err else "captcha"))
+        registrar_intento(u, ip, False, tipo)
         flash(err, "error")
         return redirect(url_for("recuperar"))
     registrar_intento(u, ip, False, "recuperar")   # cuenta para el límite por hora

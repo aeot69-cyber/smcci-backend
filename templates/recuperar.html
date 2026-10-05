@@ -18,6 +18,7 @@
 <input class="form-control" id="captcha-rec" name="captcha" inputmode="numeric" placeholder="Respuesta (número)" required autocomplete="off">
 </div>
 <div class="campo-trampa" aria-hidden="true"><input type="text" name="sitio" tabindex="-1" autocomplete="off" placeholder="Sitio web"></div>
+{% if turnstile_sitekey %}<div class="cf-turnstile mb-3" data-sitekey="{{ turnstile_sitekey }}" data-theme="auto"></div><script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% endif %}
 <button class="btn btn-primary w-100">Generar Contraseña Temporal</button>
 </form>
 <hr>

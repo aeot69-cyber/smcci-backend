@@ -4,6 +4,7 @@
 <form method="post" action="/login"><input class="form-control mb-2" name="username" placeholder="Usuario" required autocomplete="username"><div class="pw-toggle mb-2"><input class="form-control" type="password" name="password" id="pwd-login" placeholder="Clave" required autocomplete="current-password"><i class="bi bi-eye toggle-icon" onclick="togglePwd('pwd-login',this)"></i></div>
 <div class="text-start mb-2"><label class="form-label mb-1 small" for="captcha-login">{{ captcha_pregunta }}</label><input class="form-control" id="captcha-login" name="captcha" inputmode="numeric" placeholder="Respuesta (número)" required autocomplete="off"></div>
 <div class="campo-trampa" aria-hidden="true"><input type="text" name="sitio" tabindex="-1" autocomplete="off" placeholder="Sitio web"></div>
+{% if turnstile_sitekey %}<div class="cf-turnstile mb-2 text-start" data-sitekey="{{ turnstile_sitekey }}" data-theme="auto"></div><script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% endif %}
 <button class="btn btn-primary w-100 mb-2">Entrar</button></form>
 <a href="/recuperar" class="text-decoration-none">¿Olvidó su contraseña?</a>
 </div></div></div></div>
