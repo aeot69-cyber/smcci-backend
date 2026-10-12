@@ -81,17 +81,17 @@
         <div class="col-12">
           <label class="form-label">Discípulos que asistieron</label>
           <textarea class="form-control" name="asistieron" rows="2"
-                    placeholder="Nombres separados por coma...">{{ existente.discipulos_asistieron if existente else '' }}</textarea>
+                    placeholder="Nombres separados por coma..."></textarea>
         </div>
         <div class="col-12">
           <label class="form-label">Discípulos que NO asistieron (nombre - motivo)</label>
           <textarea class="form-control" name="no_asistieron" rows="2"
-                    placeholder="Juan - trabajo; María - enfermedad...">{{ existente.discipulos_no_asistieron if existente else '' }}</textarea>
+                    placeholder="Juan - trabajo; María - enfermedad..."></textarea>
         </div>
         <div class="col-md-6">
           <label class="form-label">Ofrenda</label>
           <input class="form-control" type="number" step="0.01" name="ofrenda"
-                 value="{{ existente.ofrenda if existente else '0' }}" min="0">
+                 value="" min="0" placeholder="0.00">
         </div>
         <div class="col-md-6">
           <label class="form-label">Tipo de ofrenda</label>

@@ -7,7 +7,7 @@
 <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#{{cat.key}}">{{cat.icon}} {{cat.nombre}}</a></li>
 {% endfor %}
 <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#usuarios">👥 Usuarios</a></li>
-{% if rol == 'SUPERADMIN' %}<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#codigos_lideres">🔐 Códigos Líderes</a></li>{% endif %}
+{% if rol in ['SUPERADMIN', 'ADMIN'] %}<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#codigos_lideres">🔐 Códigos Líderes</a></li>{% endif %}
 </ul>
 
 <div class="tab-content mt-3">
@@ -249,7 +249,7 @@ function editarIcono(tabla, id, actual) {
 }
 </script>
 
-{% if rol == 'SUPERADMIN' %}
+{% if rol in ['SUPERADMIN', 'ADMIN'] %}
 <div class="tab-pane fade" id="codigos_lideres">
   <h5>🔐 Códigos de Líderes (Informe Express)</h5>
   <p class="text-muted">Genera códigos de 6 dígitos para que los líderes informen desde <code>/informe</code> sin entrar al sistema.</p>
@@ -277,6 +277,37 @@ function editarIcono(tabla, id, actual) {
           <small class="text-muted text-danger">Úsalo solo si necesitas repartir códigos nuevos a todos. Los anteriores dejarán de funcionar.</small>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header bg-secondary text-white"><strong>Generar código para UN líder específico</strong></div>
+    <div class="card-body">
+      <form method="post" class="row g-2 align-items-end">
+        <input type="hidden" name="catalogo" value="__usuarios__">
+        <input type="hidden" name="accion" value="generar_codigo_un_lider">
+        <div class="col-md-5">
+          <label class="form-label small">Seleccionar líder</label>
+          <select class="form-select" name="lider_id" required>
+            <option value="">— Seleccionar líder —</option>
+            {% for l in lideres %}
+            <option value="{{l.id}}">{{l.nombre_completo}} ({{l.red}})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small">Forzar regenerar</label>
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" name="forzar" id="forzar_regenerar">
+            <label class="form-check-label small" for="forzar_regenerar">Sí, regenerar aunque ya tenga código</label>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small">&nbsp;</label>
+          <button class="btn btn-info w-100" type="submit">🔑 Generar código</button>
+        </div>
+      </form>
+      <small class="text-muted">Genera un código de 6 dígitos para un solo líder. Si ya tiene código, marca "Forzar regenerar" para cambiarlo.</small>
     </div>
   </div>
 

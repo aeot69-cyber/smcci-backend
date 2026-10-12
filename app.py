@@ -2328,10 +2328,10 @@ def configuracion_accion():
                             log_audit("RESET_CLAVE","usuarios", f"id={item_id}")
                             flash(f"Contraseña actualizada (usuario id {item_id}) — deberá cambiarla al ingresar", "ok")
 
-            # === GENERAR CÓDIGOS DE LÍDERES (solo SUPERADMIN) ===
+            # === GENERAR CÓDIGOS DE LÍDERES (SUPERADMIN y ADMIN) ===
             elif accion == "generar_codigos_lideres":
-                if session.get("rol") != "SUPERADMIN":
-                    flash("Solo SUPERADMIN puede generar códigos de líderes", "error")
+                if session.get("rol") not in ("SUPERADMIN", "ADMIN"):
+                    flash("Solo SUPERADMIN y ADMIN pueden generar códigos de líderes", "error")
                 else:
                     modo = f.get("modo", "faltantes")  # "faltantes" | "todos"
                     import secrets, string
@@ -2377,6 +2377,32 @@ def configuracion_accion():
                         flash(f"✅ {len(lideres)} códigos generados ({'TODOS' if modo=='todos' else 'solo faltantes'})", "ok")
                         return send_file(buf, as_attachment=True, download_name=f"codigos_lideres_{date.today().isoformat()}.xlsx",
                             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+            # === GENERAR CÓDIGO PARA UN SOLO LÍDER ===
+            elif accion == "generar_codigo_un_lider":
+                if session.get("rol") not in ("SUPERADMIN", "ADMIN"):
+                    flash("Solo SUPERADMIN y ADMIN pueden generar códigos de líderes", "error")
+                else:
+                    lider_id = f.get("lider_id", "").strip()
+                    forzar = f.get("forzar") == "on"
+                    if not lider_id:
+                        flash("Debe seleccionar un líder", "error")
+                    else:
+                        # Verificar si ya tiene código
+                        actual = q("SELECT codigo_informe FROM lideres WHERE id=%s", (lider_id,), one=True)
+                        if actual and actual["codigo_informe"] and not forzar:
+                            flash(f"El líder ya tiene código ({actual['codigo_informe']}). Marque 'Forzar regenerar' para cambiarlo.", "error")
+                        else:
+                            import secrets, string
+                            codigos_usados = set(r["codigo_informe"] for r in q("SELECT codigo_informe FROM lideres WHERE codigo_informe IS NOT NULL"))
+                            while True:
+                                codigo = ''.join(secrets.choice(string.digits) for _ in range(6))
+                                if codigo not in codigos_usados:
+                                    codigos_usados.add(codigo)
+                                    break
+                            q("UPDATE lideres SET codigo_informe=%s WHERE id=%s", (codigo, lider_id), commit=True)
+                            nombre = q("SELECT h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id WHERE l.id=%s", (lider_id,), one=True)
+                            flash(f"✅ Código generado para {nombre['nombre_completo']}: <strong>{codigo}</strong>", "ok")
 
         else:
             tablas_validas = [c["tabla"] for c in CATALOGOS]
