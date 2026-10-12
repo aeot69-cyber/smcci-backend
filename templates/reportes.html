@@ -1,31 +1,39 @@
-{% extends "base.html" %}{% block b %}<h2>📈 Reportes y consultas</h2>
-<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
+{% extends "base.html" %}{% block b %}<h2>Reportes y consultas</h2>
+<details class="alert alert-info"><summary><b>Ayuda</b></summary><ul class="mb-0">
 <li><b>Ver:</b> elige TODOS o uno separado. <b>Excel/PDF del elegido</b> exporta solo ese.</li>
-<li><b>Resumen por Líder:</b> una fila por líder con Células hijas + Macrocélulas + Total discípulos + encuentros aprobados por etapa + fila TOTAL.</li>
-<li><b>Total discípulos:</b> discípulos activos del líder · <b>Células hijas:</b> sub-líderes bajo su mando (jerarquía padre→hijo) · <b>Macro:</b> macrocélulas a cargo (se carga en 👥 Líderes).</li>
-<li><b>Enc.Líder:</b> aprobados del propio líder · <b>Tremendo/Fruto/Reenc/Crec/Líd:</b> discípulos activos con esa etapa aprobada.</li></ul></details>
+<li><b>Resumen por Lider:</b> una fila por lider con Celulas hijas + Macrocélulas + Total discipulos + encuentros aprobados por etapa + fila TOTAL.</li>
+<li><b>Total discipulos:</b> discipulos activos del lider · <b>Celulas hijas:</b> sub-lideres bajo su mando (jerarquia padre->hijo) · <b>Macro:</b> macrocélulas a cargo (se carga en Lideres).</li>
+<li><b>Enc.Lider:</b> aprobados del propio lider · <b>Tremendo/Fruto/Reenc/Crec/Lid:</b> discipulos activos con esa etapa aprobada.</li></ul></details>
 <form class="row g-2 mb-3" method="get"><div class="col-md-4"><select class="form-select" name="ver" onchange="this.form.submit()" title="Elige ver todos o uno separado">
 <option value="todos" {% if ver=='todos' %}selected{% endif %}>Ver TODOS</option>
-<option value="resumen" {% if ver=='resumen' %}selected{% endif %}>Resumen por Líder (único + total)</option>
+<option value="resumen" {% if ver=='resumen' %}selected{% endif %}>Resumen por Lider (unico + total)</option>
+<optgroup label="--- Informes de Celula ---">
+<option value="celulas_resumen" {% if ver=='celulas_resumen' %}selected{% endif %}>Informe Celula - Por Lider</option>
+<option value="celulas_por_pastor" {% if ver=='celulas_por_pastor' %}selected{% endif %}>Informe Celula - Por Pastor</option>
+<option value="celulas_por_red" {% if ver=='celulas_por_red' %}selected{% endif %}>Informe Celula - Por Red</option>
+</optgroup>
 <option value="por_12" {% if ver=='por_12' %}selected{% endif %}>Por Tipo 12</option>
-<option value="por_red" {% if ver=='por_red' %}selected{% endif %}>Por red / célula</option>
+<option value="por_red" {% if ver=='por_red' %}selected{% endif %}>Por red / celula</option>
 <option value="por_comuna" {% if ver=='por_comuna' %}selected{% endif %}>Por comuna</option>
-<option value="sin_celula" {% if ver=='sin_celula' %}selected{% endif %}>Sin célula</option>
+<option value="sin_celula" {% if ver=='sin_celula' %}selected{% endif %}>Sin celula</option>
 <option value="pendientes" {% if ver=='pendientes' %}selected{% endif %}>Pendientes encuentro</option>
 <option value="periodicidad" {% if ver=='periodicidad' %}selected{% endif %}>Periodicidad</option>
 <option value="ruta_incompleta" {% if ver=='ruta_incompleta' %}selected{% endif %}>Ruta incompleta</option>
 </select></div>
 <div class="col-auto"><a class="btn btn-success btn-sm" href="/reportes?ver={{ver}}&export=excel" target="_blank">Excel del elegido</a> <a class="btn btn-danger btn-sm" href="/reportes?ver={{ver}}&export=pdf" target="_blank">PDF del elegido</a></div></form>
-{% if ver in ['todos','resumen'] %}<div class="card p-3 mb-3"><h5>⭐ Resumen por Líder — {{r.total.lideres}} líderes / {{r.total.activos}} activos</h5>
-<div style="overflow-x:auto"><table class="table table-striped"><tr><th>Líder</th><th>Red</th><th>12</th><th title="Sub-líderes bajo su mando (jerarquía)">Cél. hijas</th><th title="Macrocélulas a cargo (campo cargado en 👥 Líderes)">Macro</th><th title="Discípulos activos del líder">Total discípulos</th><th>Enc.Líder</th><th>Tremendo</th><th>Fruto</th><th>Reenc.</th><th>Crec.</th><th>Líd.</th></tr>
+{% if ver in ['todos','resumen'] %}<div class="card p-3 mb-3"><h5>Resumen por Lider — {{r.total.lideres}} lideres / {{r.total.activos}} activos</h5>
+<div style="overflow-x:auto"><table class="table table-striped"><tr><th>Lider</th><th>Red</th><th>12</th><th title="Sub-lideres bajo su mando (jerarquia)">Cel. hijas</th><th title="Macrocélulas a cargo (campo cargado en Lideres)">Macro</th><th title="Discipulos activos del lider">Total discipulos</th><th>Enc.Lider</th><th>Tremendo</th><th>Fruto</th><th>Reenc.</th><th>Crec.</th><th>Lid.</th></tr>
 {% for x in r.resumen %}<tr><td>{{x.lider}}</td><td>{{x.red}}</td><td>{{x.tipo_12}}</td><td>{{x.celulas_hijas}}</td><td>{{x.cantidad_macrocelulas}}</td><td><b>{{x.discipulos_activos}}</b></td><td>{{x.enc_lider}}</td><td>{{x.d_tremendo}}</td><td>{{x.d_fruto}}</td><td>{{x.d_reenc}}</td><td>{{x.d_crec}}</td><td>{{x.d_lid}}</td></tr>{% endfor %}
 <tr class="table-dark"><td>TOTAL</td><td colspan=2></td><td>{{r.total.hijos}}</td><td>{{r.total.macro}}</td><td>{{r.total.activos}}</td><td>{{r.total_enc.enc_lideres}}</td><td colspan=5></td></tr></table></div>
-<small>Total discípulos = discípulos activos (797 en total). Las columnas de etapas quedan en 0 hasta que se registren encuentros en 🔥 Encuentros. Exporta a Excel/PDF con el botón superior.</small></div>{% endif %}
+<small>Total discipulos = discipulos activos (797 en total). Las columnas de etapas quedan en 0 hasta que se registren encuentros en Encuentros. Exporta a Excel/PDF con el boton superior.</small></div>{% endif %}
 {% if ver in ['todos','por_12'] %}<div class="card p-3 mb-3"><h5>Por Tipo 12 / Pastores</h5><table class="table"><tr><th>Tipo 12</th><th>N</th><th>Pastores</th></tr>{% for x in r.por_12 %}<tr><td>{{x.tipo_12}}</td><td>{{x.c}}</td><td>{{x.pastores}}</td></tr>{% endfor %}</table></div>{% endif %}
 {% if ver in ['todos','por_red'] %}<div class="card p-3 mb-3"><h5>Por red / estado</h5><table class="table"><tr><th>Red</th><th>Estado</th><th>N</th></tr>{% for x in r.por_red %}<tr><td>{{x.red}}</td><td>{{x.estado_celula}}</td><td>{{x.c}}</td></tr>{% endfor %}</table></div>{% endif %}
-{% if ver in ['todos','por_comuna'] %}<div class="card p-3 mb-3"><h5>Por comuna</h5><table class="table"><tr><th>Región</th><th>Comuna</th><th>N</th></tr>{% for x in r.por_comuna %}<tr><td>{{x.region}}</td><td>{{x.comuna}}</td><td>{{x.c}}</td></tr>{% endfor %}</table></div>{% endif %}
-{% if ver in ['todos','sin_celula'] %}<div class="card p-3 mb-3"><h5>Sin célula</h5><table class="table"><tr><th>Nombre</th><th>Red</th></tr>{% for x in r.sin_celula %}<tr><td>{{x.nombre_completo}}</td><td>{{x.red}}</td></tr>{% else %}<tr><td colspan=2>Ninguno</td></tr>{% endfor %}</table></div>{% endif %}
+{% if ver in ['todos','por_comuna'] %}<div class="card p-3 mb-3"><h5>Por comuna</h5><table class="table"><tr><th>Region</th><th>Comuna</th><th>N</th></tr>{% for x in r.por_comuna %}<tr><td>{{x.region}}</td><td>{{x.comuna}}</td><td>{{x.c}}</td></tr>{% endfor %}</table></div>{% endif %}
+{% if ver in ['todos','sin_celula'] %}<div class="card p-3 mb-3"><h5>Sin celula</h5><table class="table"><tr><th>Nombre</th><th>Red</th></tr>{% for x in r.sin_celula %}<tr><td>{{x.nombre_completo}}</td><td>{{x.red}}</td></tr>{% else %}<tr><td colspan=2>Ninguno</td></tr>{% endfor %}</table></div>{% endif %}
 {% if ver in ['todos','pendientes'] %}<div class="card p-3 mb-3"><h5>Pendientes encuentro</h5><table class="table"><tr><th>Nombre</th><th>Etapa</th></tr>{% for x in r.pendientes %}<tr><td>{{x.nombre_completo}}</td><td>{{x.etapa}}</td></tr>{% endfor %}</table></div>{% endif %}
 {% if ver in ['todos','periodicidad'] %}<div class="card p-3 mb-3"><h5>Periodicidad</h5><table class="table"><tr><th>Nombre</th><th>N</th></tr>{% for x in r.periodicidad %}<tr><td>{{x.nombre}}</td><td>{{x.c}}</td></tr>{% endfor %}</table></div>{% endif %}
-{% if ver in ['todos','ruta_incompleta'] %}<div class="card p-3 mb-3"><h5>Ruta incompleta (falta Esc. Líderes)</h5><table class="table"><tr><th>Nombre</th></tr>{% for x in r.ruta_incompleta %}<tr><td>{{x.nombre_completo}}</td></tr>{% endfor %}</table></div>{% endif %}
+{% if ver in ['todos','ruta_incompleta'] %}<div class="card p-3 mb-3"><h5>Ruta incompleta (falta Esc. Lideres)</h5><table class="table"><tr><th>Nombre</th></tr>{% for x in r.ruta_incompleta %}<tr><td>{{x.nombre_completo}}</td></tr>{% endfor %}</table></div>{% endif %}
+{% if ver in ['todos','celulas_resumen'] %}<div class="card p-3 mb-3"><h5>Informe Celula - Por Lider</h5><div style="overflow-x:auto"><table class="table table-striped"><tr><th>Lider</th><th>Red</th><th>Pastor</th><th>Total Informes</th><th>Realizadas</th><th>No Realizadas</th><th>Total Ofrenda</th><th>Ultima Fecha</th></tr>{% for x in r.celulas_resumen %}<tr><td>{{x.lider}}</td><td>{{x.red}}</td><td>{{x.pastor}}</td><td>{{x.total_informes}}</td><td>{{x.realizadas}}</td><td>{{x.no_realizadas}}</td><td>${{x.total_ofrenda|int}}</td><td>{{x.ultima_fecha if x.ultima_fecha else '-'}}</td></tr>{% else %}<tr><td colspan=8>Sin datos</td></tr>{% endfor %}</table></div></div>{% endif %}
+{% if ver in ['todos','celulas_por_pastor'] %}<div class="card p-3 mb-3"><h5>Informe Celula - Por Pastor</h5><table class="table"><tr><th>Pastor</th><th>Red</th><th>Total Lideres</th><th>Total Informes</th><th>Realizadas</th><th>No Realizadas</th><th>Total Ofrenda</th></tr>{% for x in r.celulas_por_pastor %}<tr><td>{{x.pastor}}</td><td>{{x.red_pastor}}</td><td>{{x.total_lideres}}</td><td>{{x.total_informes}}</td><td>{{x.realizadas}}</td><td>{{x.no_realizadas}}</td><td>${{x.total_ofrenda|int}}</td></tr>{% else %}<tr><td colspan=7>Sin datos</td></tr>{% endfor %}</table></div>{% endif %}
+{% if ver in ['todos','celulas_por_red'] %}<div class="card p-3 mb-3"><h5>Informe Celula - Por Red</h5><table class="table"><tr><th>Red</th><th>Total Lideres</th><th>Total Informes</th><th>Realizadas</th><th>No Realizadas</th><th>Total Ofrenda</th></tr>{% for x in r.celulas_por_red %}<tr><td>{{x.red}}</td><td>{{x.total_lideres}}</td><td>{{x.total_informes}}</td><td>{{x.realizadas}}</td><td>{{x.no_realizadas}}</td><td>${{x.total_ofrenda|int}}</td></tr>{% else %}<tr><td colspan=6>Sin datos</td></tr>{% endfor %}</table></div>{% endif %}
 {% endblock %}

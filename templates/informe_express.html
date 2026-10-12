@@ -1,0 +1,151 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-4" style="max-width:520px; margin:2rem auto;">
+  <div class="text-center mb-3">
+    <h4 class="mb-1">⛪ SMCCI · Informe de Célula</h4>
+    <small class="text-muted">Semana {{ semana_actual }}</small>
+  </div>
+
+  {% if not lider %}
+    {# ========= PASO 1: CÓDIGO ========= #}
+    <form method="post" action="/informe/codigo">
+      <input type="hidden" name="sitio" class="campo-trampa" tabindex="-1" autocomplete="off">
+      
+      <div class="mb-3">
+        <label class="form-label">Tu código de líder (6 dígitos)</label>
+        <input class="form-control text-center" type="text" name="codigo" inputmode="numeric"
+               pattern="\d{6}" maxlength="6" placeholder="123456" required autocomplete="off">
+        <div class="form-text">Lo recibiste por WhatsApp o en tu tarjeta.</div>
+      </div>
+
+      {# Captcha matemático #}
+      <div class="mb-3">
+        <label class="form-label mb-1 small" for="captcha">{{ captcha_pregunta }}</label>
+        <input class="form-control" id="captcha" name="captcha" inputmode="numeric"
+               placeholder="Respuesta (número)" required autocomplete="off">
+      </div>
+
+      {# Honeypot #}
+      <div class="campo-trampa" aria-hidden="true">
+        <input type="text" name="sitio" tabindex="-1" autocomplete="off" placeholder="Sitio web">
+      </div>
+
+      {# Turnstile #}
+      {% if turnstile_sitekey %}
+      <div class="cf-turnstile mb-3 text-start" data-sitekey="{{ turnstile_sitekey }}" data-theme="auto"></div>
+      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+      {% endif %}
+
+      <button class="btn btn-primary w-100" type="submit">Continuar →</button>
+    </form>
+
+  {% else %}
+    {# ========= PASO 2: FORMULARIO ========= #}
+    <div class="alert alert-info mb-3">
+      <strong>👋 Hola {{ lider.nombre }}</strong><br>
+      <small>Célula: {{ lider.red }} · Pastor: {{ lider.pastor }} · {{ lider.direccion }}, {{ lider.comuna }}</small>
+    </div>
+
+    <form method="post" action="/informe/guardar" id="formInforme">
+      <input type="hidden" name="sitio" class="campo-trampa" tabindex="-1" autocomplete="off">
+      <input type="hidden" name="lider_id" value="{{ lider.id }}">
+
+      <div class="mb-3">
+        <label class="form-label fw-bold">Fecha de la célula *</label>
+        <input class="form-control" type="date" name="fecha" value="{{ fecha_hoy }}" required max="{{ fecha_hoy }}">
+        <div class="form-text">Seleccione la semana que informa (hoy como máximo). El mes se calcula solo.</div>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label fw-bold">¿Se realizó su célula esta semana? *</label>
+        <div class="d-flex gap-3">
+          <div class="form-check flex-fill">
+            <input class="form-check-input" type="radio" name="realizo" id="si" value="1" required>
+            <label class="form-check-label fw-bold text-success" for="si">✅ SÍ, se realizó</label>
+          </div>
+          <div class="form-check flex-fill">
+            <input class="form-check-input" type="radio" name="realizo" id="no" value="0">
+            <label class="form-check-label fw-bold text-danger" for="no">❌ NO</label>
+          </div>
+        </div>
+      </div>
+
+      <div id="divNo" class="mb-3" style="display:none;">
+        <label class="form-label" for="justificacion">Motivo (obligatorio si NO se realizó) *</label>
+        <textarea class="form-control" id="justificacion" name="justificacion" rows="2"
+                  placeholder="Ej: viaje, enfermedad, evento de la iglesia..."></textarea>
+      </div>
+
+      <hr class="my-3">
+
+      <div class="row g-3">
+        <div class="col-12">
+          <label class="form-label">Discípulos que asistieron</label>
+          <textarea class="form-control" name="asistieron" rows="2"
+                    placeholder="Nombres separados por coma...">{{ existente.discipulos_asistieron if existente else '' }}</textarea>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Discípulos que NO asistieron (nombre - motivo)</label>
+          <textarea class="form-control" name="no_asistieron" rows="2"
+                    placeholder="Juan - trabajo; María - enfermedad...">{{ existente.discipulos_no_asistieron if existente else '' }}</textarea>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Ofrenda</label>
+          <input class="form-control" type="number" step="0.01" name="ofrenda"
+                 value="{{ existente.ofrenda if existente else '0' }}" min="0">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Tipo de ofrenda</label>
+          <select class="form-select" name="tipo_ofrenda">
+            <option value="EFECTIVO" {% if existente and existente.tipo_ofrenda=='EFECTIVO' %}selected{% endif %}>Efectivo</option>
+            <option value="TRANSFERENCIA" {% if existente and existente.tipo_ofrenda=='TRANSFERENCIA' %}selected{% endif %}>Transferencia</option>
+            <option value="AMBOS" {% if existente and existente.tipo_ofrenda=='AMBOS' %}selected{% endif %}>Ambos</option>
+            <option value="NO SE HACE" {% if existente and existente.tipo_ofrenda=='NO SE HACE' %}selected{% endif %}>No se hace</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Modalidad</label>
+          <select class="form-select" name="modalidad">
+            <option value="PRESENCIAL" {% if existente and existente.modalidad=='PRESENCIAL' %}selected{% endif %}>Presencial</option>
+            <option value="ONLINE" {% if existente and existente.modalidad=='ONLINE' %}selected{% endif %}>Online</option>
+            <option value="AMBAS" {% if existente and existente.modalidad=='AMBAS' %}selected{% endif %}>Ambas</option>
+          </select>
+        </div>
+      </div>
+
+      {# Captcha matemático #}
+      <div class="mb-3 mt-3">
+        <label class="form-label mb-1 small" for="captcha2">{{ captcha_pregunta2 }}</label>
+        <input class="form-control" id="captcha2" name="captcha" inputmode="numeric"
+               placeholder="Respuesta (número)" required autocomplete="off">
+      </div>
+
+      {# Honeypot #}
+      <div class="campo-trampa" aria-hidden="true">
+        <input type="text" name="sitio" tabindex="-1" autocomplete="off" placeholder="Sitio web">
+      </div>
+
+      {# Turnstile #}
+      {% if turnstile_sitekey %}
+      <div class="cf-turnstile mb-3 text-start" data-sitekey="{{ turnstile_sitekey }}" data-theme="auto"></div>
+      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+      {% endif %}
+
+      <div class="d-grid gap-2">
+        <button class="btn btn-success" type="submit">✅ Enviar informe</button>
+        <a href="/informe/salir" class="btn btn-outline-secondary btn-sm">No soy yo / Cambiar código</a>
+      </div>
+    </form>
+  {% endif %}
+</div>
+
+<script>
+  // Mostrar/ocultar motivo si NO
+  const noRadio = document.getElementById('no');
+  const siRadio = document.getElementById('si');
+  const divNo = document.getElementById('divNo');
+  if (noRadio && siRadio && divNo) {
+    noRadio.addEventListener('change', () => divNo.style.display = 'block');
+    siRadio.addEventListener('change', () => divNo.style.display = 'none');
+  }
+</script>
+{% endblock %}

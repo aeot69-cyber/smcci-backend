@@ -7,6 +7,7 @@
 <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#{{cat.key}}">{{cat.icon}} {{cat.nombre}}</a></li>
 {% endfor %}
 <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#usuarios">👥 Usuarios</a></li>
+{% if rol == 'SUPERADMIN' %}<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#codigos_lideres">🔐 Códigos Líderes</a></li>{% endif %}
 </ul>
 
 <div class="tab-content mt-3">
@@ -226,6 +227,90 @@
 </div></div>
 </div>
 {% endfor %}
+
+<script>
+function renombrar(tabla, id, nombre) {
+    var nuevo = prompt("Nuevo nombre para:", nombre);
+    if (nuevo && nuevo !== nombre) {
+        var f = document.createElement('form');
+        f.method='post';
+        f.innerHTML='<input name="catalogo" value="'+tabla+'"><input name="accion" value="renombrar"><input name="item_id" value="'+id+'"><input name="nombre" value="'+nuevo+'">';
+        document.body.appendChild(f); f.submit();
+    }
+}
+function editarIcono(tabla, id, actual) {
+    var nuevo = prompt("Nuevo icono (emoji) para el rol:", actual || "⭐");
+    if (nuevo !== null) {
+        var f = document.createElement('form');
+        f.method='post';
+        f.innerHTML='<input name="catalogo" value="'+tabla+'"><input name="accion" value="editar_icono"><input name="item_id" value="'+id+'"><input name="icono" value="'+nuevo+'">';
+        document.body.appendChild(f); f.submit();
+    }
+}
+</script>
+
+{% if rol == 'SUPERADMIN' %}
+<div class="tab-pane fade" id="codigos_lideres">
+  <h5>🔐 Códigos de Líderes (Informe Express)</h5>
+  <p class="text-muted">Genera códigos de 6 dígitos para que los líderes informen desde <code>/informe</code> sin entrar al sistema.</p>
+  
+  <div class="card mb-3">
+    <div class="card-header bg-primary text-white"><strong>Acciones masivas</strong></div>
+    <div class="card-body">
+      <div class="row g-2">
+        <div class="col-md-6">
+          <form method="post" class="d-inline">
+            <input type="hidden" name="catalogo" value="__usuarios__">
+            <input type="hidden" name="accion" value="generar_codigos_lideres">
+            <input type="hidden" name="modo" value="faltantes">
+            <button class="btn btn-success w-100" type="submit">🔑 Generar códigos solo a quienes NO tienen</button>
+          </form>
+          <small class="text-muted">Recomendado: solo llena los vacíos. No toca los códigos ya asignados.</small>
+        </div>
+        <div class="col-md-6">
+          <form method="post" class="d-inline" onsubmit="return confirm('Esto REGENERA TODOS los códigos (invalida los actuales). ¿Continuar?')">
+            <input type="hidden" name="catalogo" value="__usuarios__">
+            <input type="hidden" name="accion" value="generar_codigos_lideres">
+            <input type="hidden" name="modo" value="todos">
+            <button class="btn btn-warning w-100" type="submit">⚠️ Regenerar TODOS los códigos (invalida actuales)</button>
+          </form>
+          <small class="text-muted text-danger">Úsalo solo si necesitas repartir códigos nuevos a todos. Los anteriores dejarán de funcionar.</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header bg-info text-white"><strong>Estado actual de códigos</strong></div>
+    <div class="card-body">
+      <table class="table table-sm table-striped">
+        <tr><th>Líder</th><th>Red</th><th>Código</th><th>Estado</th></tr>
+        {% for l in lideres %}
+        <tr>
+          <td>{{l.nombre_completo}}</td>
+          <td>{{l.red}}</td>
+          <td>
+            {% set cod = l.codigo_informe or '' %}
+            {% if cod %}<code class="bg-light px-2 py-1">{{cod}}</code>{% else %}<span class="text-danger">— SIN CÓDIGO —</span>{% endif %}
+          </td>
+          <td>
+            {% if l.codigo_informe %}
+              <span class="badge bg-success">Listo</span>
+            {% else %}
+              <span class="badge bg-danger">Pendiente</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan=4 class="text-muted">Sin líderes</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+</div>
+</div>
 
 <script>
 function renombrar(tabla, id, nombre) {

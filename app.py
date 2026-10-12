@@ -17,6 +17,9 @@ from email.mime.multipart import MIMEMultipart
 
 load_dotenv()
 app = Flask(__name__)
+# Debug mode en desarrollo local
+if os.environ.get("FLASK_ENV") == "development":
+    app.debug = True
 
 def enviar_email(destinatario, asunto, cuerpo_html):
     """Envía un email HTML usando SMTP."""
@@ -370,9 +373,14 @@ def verificar_turnstile(token):
     - Sin claves configuradas → True (sigue vigente el escudo anterior).
     - Con claves → False si falta el token o Cloudflare lo rechaza.
     - Si Cloudflare no responde (caída externa) → True: no se deja fuera a los
-      usuarios por un fallo de terceros; el bloqueo por intentos sigue activo."""
+      usuarios por un fallo de terceros; el bloqueo por intentos sigue activo.
+    - EN LOCALHOST (desarrollo) → True siempre: evita bloqueos por Tracking Prevention."""
     site, secret = claves_turnstile()
     if not (site and secret):
+        return True
+    # LOCAL: saltar Turnstile para pruebas (claves TEST + localhost)
+    host = (request.headers.get("Host", "") or "").split(":")[0].lower()
+    if host in ("localhost", "127.0.0.1") and site.startswith("1x000"):
         return True
     if not token:
         return False
@@ -1677,6 +1685,260 @@ def celulas_informe_eliminar(cid):
         flash(f"Error: {e}", "error")
     return redirect(url_for("celulas_informe_lista"))
 
+# ---------- INFORME EXPRESS (público, sin login) ----------
+from datetime import date, datetime
+
+MESES_ES = {
+    1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO",
+    7: "JULIO", 8: "AGOSTO", 9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"
+}
+
+def semana_actual():
+    """Devuelve 'Semana X del MES' para la etiqueta del formulario."""
+    hoy = date.today()
+    # semana del mes (1-5)
+    inicio_mes = date(hoy.year, hoy.month, 1)
+    dias_desde_inicio = (hoy - inicio_mes).days
+    semana = (dias_desde_inicio // 7) + 1
+    return f"Semana {semana} de {MESES_ES[hoy.month]}"
+
+@app.get("/informe")
+def informe_express():
+    """Paso 1: pide código de líder; si ya hay sesión, muestra formulario."""
+    # Si ya tiene sesión de informe, salta al formulario
+    if session.get("informe_lider_id"):
+        return _mostrar_formulario_informe()
+    # Si no, muestra la pantalla de código
+    pregunta = nuevo_captcha("captcha_informe")
+    return render_template("informe_express.html",
+                           lider=None,
+                           captcha_pregunta=pregunta,
+                           turnstile_sitekey=turnstile_sitekey_visible(),
+                           semana_actual=semana_actual())
+
+@app.post("/informe/codigo")
+def informe_codigo():
+    """Valida el código del líder y crea la sesión."""
+    ip = ip_cliente()
+    codigo = (request.form.get("codigo") or "").strip()
+
+    # 1) Bloqueo por código (reutiliza la misma lógica: 5 fallos = 15 min → 1 h → 24 h)
+    mins = _bloqueo_por_codigo(codigo, ip)
+    if mins:
+        registrar_intento(codigo, ip, False, "bloqueo_codigo")
+        flash(f"Demasiados intentos fallidos. Espere {texto_espera(mins)} antes de volver a intentar.", "error")
+        return redirect(url_for("informe_express"))
+
+    # 2) Honeypot + captcha + Turnstile + tiempo mínimo
+    err, tipo = chequear_form_seguro("captcha_informe")
+    if err:
+        registrar_intento(codigo, ip, False, tipo)
+        flash(err, "error")
+        return redirect(url_for("informe_express"))
+
+    # 3) Buscar líder por código (+ último informe para horario/modalidad)
+    lider = q("""SELECT l.id, h.nombre_completo, l.red,
+                       (SELECT h2.nombre_completo FROM lideres l2
+                        JOIN hermanos h2 ON h2.id=l2.hermano_id
+                        WHERE l2.id=l.lider_padre_id) AS pastor_nombre,
+                       h.direccion,
+                       c.nombre AS comuna,
+                       (SELECT ci.horario FROM celulas_informe ci
+                        WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS horario,
+                       (SELECT ci.modalidad FROM celulas_informe ci
+                        WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS modalidad
+                FROM lideres l
+                JOIN hermanos h ON h.id=l.hermano_id
+                LEFT JOIN comunas c ON c.id=h.comuna_id
+                WHERE l.codigo_informe=%s AND l.activo""", (codigo,), one=True)
+
+    if not lider:
+        registrar_intento(codigo, ip, False, "codigo_invalido")
+        flash("Código inválido o líder inactivo. Verifique e intente de nuevo.", "error")
+        return redirect(url_for("informe_express"))
+
+    # Éxito: crea sesión ligera (1 hora)
+    session["informe_lider_id"] = lider["id"]
+    session["informe_lider_nombre"] = lider["nombre_completo"]
+    session.permanent = True
+    registrar_intento(codigo, ip, True, "codigo_ok")
+    return redirect(url_for("informe_express"))
+
+def _bloqueo_por_codigo(codigo, ip):
+    """Bloqueo exponencial por código (como login pero sin usuario).
+    5 fallos en 15 min → 15 min → 1 h → 24 h (memoria 7 días)."""
+    # ¿Bloqueo vigente?
+    for detalle, clave in (("bloqueo_codigo", codigo), ("bloqueo_ip", ip)):
+        b = _bloqueo_activo(detalle, clave, ip)
+        if b:
+            return max(b[0], 1)
+    # ¿Supera umbral?
+    try:
+        row = q("""
+            SELECT
+              (SELECT count(*) FROM intentos_login x
+                 WHERE NOT x.exito AND x.detalle IN ('codigo_invalido','captcha','turnstile','rapido','honeypot','sesion')
+                   AND x.username=%s
+                   AND x.creado > now() - make_interval(mins => %s)
+                   AND x.creado > COALESCE((SELECT max(y.creado) FROM intentos_login y
+                                            WHERE y.exito AND y.detalle='codigo_ok' AND y.username=%s), '-infinity'::timestamp)
+              ) AS fallos_codigo,
+              (SELECT count(*) FROM intentos_login x
+                 WHERE NOT x.exito AND x.ip=%s
+                   AND x.creado > now() - make_interval(mins => %s)
+              ) AS fallos_ip""",
+            (codigo, LOGIN_VENTANA_MIN, codigo, ip, LOGIN_VENTANA_MIN), one=True)
+        if not row:
+            return 0
+        if (row["fallos_codigo"] or 0) >= LOGIN_FALLOS_USER:
+            return _activar_bloqueo("bloqueo_codigo", codigo, ip)[0]
+        if (row["fallos_ip"] or 0) >= LOGIN_FALLOS_IP:
+            return _activar_bloqueo("bloqueo_ip", "", ip)[0]
+    except Exception as e:
+        print(f"_bloqueo_por_codigo failed: {e}")
+    return 0
+
+def _mostrar_formulario_informe():
+    """Muestra el formulario con datos pre-cargados del líder."""
+    lid = session.get("informe_lider_id")
+    if not lid:
+        return redirect(url_for("informe_express"))
+
+    # Datos fijos del líder (para precargar)
+    lider = q("""SELECT l.id, h.nombre_completo AS nombre, l.red,
+                       (SELECT h2.nombre_completo FROM lideres l2
+                        JOIN hermanos h2 ON h2.id=l2.hermano_id
+                        WHERE l2.id=l.lider_padre_id) AS pastor,
+                       h.direccion,
+                       c.nombre AS comuna,
+                       (SELECT ci.horario FROM celulas_informe ci
+                        WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS horario,
+                       (SELECT ci.modalidad FROM celulas_informe ci
+                        WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS modalidad
+                FROM lideres l
+                JOIN hermanos h ON h.id=l.hermano_id
+                LEFT JOIN comunas c ON c.id=h.comuna_id
+                WHERE l.id=%s AND l.activo""", (lid,), one=True)
+    if not lider:
+        session.pop("informe_lider_id", None)
+        session.pop("informe_lider_nombre", None)
+        flash("Sesión expirada. Ingrese su código nuevamente.", "error")
+        return redirect(url_for("informe_express"))
+
+    # Último informe del líder (para precargar datos en el formulario)
+    existente = q("""SELECT * FROM celulas_informe
+                     WHERE lider_id=%s
+                     ORDER BY created_at DESC LIMIT 1""", (lid,), one=True)
+
+    pregunta = nuevo_captcha("captcha_informe2")
+    hoy = date.today()
+    return render_template("informe_express.html",
+                           lider=lider,
+                           existente=existente,
+                           captcha_pregunta2=pregunta,
+                           turnstile_sitekey=turnstile_sitekey_visible(),
+                           fecha_hoy=hoy.isoformat(),
+                           semana_actual=semana_actual())
+
+@app.post("/informe/guardar")
+def informe_guardar():
+    """Guarda el informe (insert o update si ya existe esa semana)."""
+    lid = session.get("informe_lider_id")
+    if not lid:
+        flash("Sesión expirada. Ingrese su código nuevamente.", "error")
+        return redirect(url_for("informe_express"))
+
+    ip = ip_cliente()
+    f = request.form
+
+    # Seguridad: honeypot + captcha + Turnstile + tiempo mínimo
+    err, tipo = chequear_form_seguro("captcha_informe2")
+    if err:
+        registrar_intento(str(lid), ip, False, tipo)
+        flash(err, "error")
+        return redirect(url_for("informe_express"))
+
+    # Validación: si NO se realizó, exige justificación
+    realizo = f.get("realizo") == "1"
+    justificacion = (f.get("justificacion") or "").strip()
+    if not realizo and not justificacion:
+        flash("Si la célula NO se realizó, debe indicar el motivo.", "error")
+        return redirect(url_for("informe_express"))
+
+    # Fecha elegida por el líder (viene del formulario)
+    try:
+        fecha_sel = date.fromisoformat(f.get("fecha", ""))
+    except Exception:
+        flash("Fecha inválida.", "error")
+        return redirect(url_for("informe_express"))
+
+    # No permitir fechas futuras
+    if fecha_sel > date.today():
+        flash("La fecha no puede ser futura.", "error")
+        return redirect(url_for("informe_express"))
+
+    mes_sel = MESES_ES[fecha_sel.month]
+    anio_iso, semana_iso, _ = fecha_sel.isocalendar()
+
+    # ¿Ya existe informe en esa semana ISO? → UPDATE, sino INSERT
+    existente = q("""SELECT id FROM celulas_informe
+                     WHERE lider_id=%s
+                       AND EXTRACT(YEAR FROM fecha)::int=%s
+                       AND EXTRACT(WEEK FROM fecha)::int=%s
+                     ORDER BY created_at DESC LIMIT 1""",
+                  (lid, anio_iso, semana_iso), one=True)
+
+    # Datos del líder para pastor_id, red, etc.
+    ldata = q("""SELECT l.lider_padre_id, l.red,
+                       h.direccion,
+                       c.nombre AS comuna,
+                       (SELECT ci.horario FROM celulas_informe ci
+                        WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS horario,
+                       (SELECT ci.modalidad FROM celulas_informe ci
+                        WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS modalidad
+                FROM lideres l
+                JOIN hermanos h ON h.id=l.hermano_id
+                LEFT JOIN comunas c ON c.id=h.comuna_id
+                WHERE l.id=%s""", (lid,), one=True)
+
+    try:
+        if existente:
+            q("""UPDATE celulas_informe SET
+                     pastor_id=%s, mes=%s, red=%s, direccion=%s, comuna=%s, horario=%s,
+                     realizo=%s, justificacion=%s, discipulos_asistieron=%s,
+                     discipulos_no_asistieron=%s, ofrenda=%s, tipo_ofrenda=%s, modalidad=%s
+                 WHERE id=%s""",
+                (ldata["lider_padre_id"], mes_sel, ldata["red"], ldata["direccion"],
+                 ldata["comuna"], ldata["horario"], realizo, justificacion,
+                 f.get("asistieron"), f.get("no_asistieron"),
+                 f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
+                 existente["id"]), commit=True)
+        else:
+            q("""INSERT INTO celulas_informe
+                    (lider_id, pastor_id, fecha, mes, red, direccion, comuna, horario,
+                     realizo, justificacion, discipulos_asistieron, discipulos_no_asistieron,
+                     ofrenda, tipo_ofrenda, modalidad)
+                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (lid, ldata["lider_padre_id"], fecha_sel, mes_sel,
+                 ldata["red"], ldata["direccion"], ldata["comuna"], ldata["horario"],
+                 realizo, justificacion, f.get("asistieron"), f.get("no_asistieron"),
+                 f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad")), commit=True)
+        flash("✅ Informe registrado. ¡Bendiciones!", "ok")
+        log_audit("INFORME_EXPRESS", "celulas", f"lider={lid} realizo={realizo} ip={ip}")
+    except Exception as e:
+        flash(f"Error al guardar: {e}", "error")
+        print(f"informe_guardar error: {e}")
+
+    return redirect(url_for("informe_express"))
+
+@app.get("/informe/salir")
+def informe_salir():
+    """Limpia la sesión del informe express."""
+    session.pop("informe_lider_id", None)
+    session.pop("informe_lider_nombre", None)
+    flash("Sesión cerrada.", "ok")
+    return redirect(url_for("informe_express"))
+
 # ---------- REPORTES ----------
 @app.get("/reportes")
 @login_req
@@ -1696,6 +1958,64 @@ def reportes():
     r["periodicidad"] = q("""SELECT p.nombre AS nombre,COUNT(d.id) AS c FROM discipulado d JOIN periodicidad_celula p ON p.id=d.periodicidad_id
         WHERE d.fecha_fin IS NULL GROUP BY 1 ORDER BY 2 DESC""")
     r["por_12"] = q("SELECT tipo_12, COUNT(*) AS c, SUM(CASE WHEN es_pastor THEN 1 ELSE 0 END) AS pastores FROM lideres WHERE activo GROUP BY 1 ORDER BY 2 DESC")
+    # NUEVO: Resumen de Informes de Célula por líder, pastor y red
+    r["celulas_resumen"] = q("""
+        SELECT 
+            l.id AS lider_id,
+            h.nombre_completo AS lider,
+            l.red,
+            COALESCE(hp.nombre_completo, 'SIN PASTOR') AS pastor,
+            COUNT(ci.id) AS total_informes,
+            SUM(CASE WHEN ci.realizo THEN 1 ELSE 0 END) AS realizadas,
+            SUM(CASE WHEN NOT ci.realizo THEN 1 ELSE 0 END) AS no_realizadas,
+            COALESCE(SUM(ci.ofrenda), 0) AS total_ofrenda,
+            MAX(ci.fecha) AS ultima_fecha,
+            MAX(ci.created_at) AS ultimo_registro
+        FROM lideres l
+        JOIN hermanos h ON h.id = l.hermano_id
+        LEFT JOIN lideres lp ON lp.id = l.lider_padre_id
+        LEFT JOIN hermanos hp ON hp.id = lp.hermano_id
+        LEFT JOIN celulas_informe ci ON ci.lider_id = l.id
+        WHERE l.activo
+        GROUP BY l.id, h.nombre_completo, l.red, hp.nombre_completo
+        ORDER BY l.red, h.nombre_completo
+    """)
+    # Resumen agrupado por pastor (es_pastor=true O rol_lider='APOSTOL')
+    r["celulas_por_pastor"] = q("""
+        SELECT 
+            hp.nombre_completo AS pastor,
+            lp.red AS red_pastor,
+            COUNT(DISTINCT l.id) AS total_lideres,
+            COUNT(ci.id) AS total_informes,
+            SUM(CASE WHEN ci.realizo THEN 1 ELSE 0 END) AS realizadas,
+            SUM(CASE WHEN NOT ci.realizo THEN 1 ELSE 0 END) AS no_realizadas,
+            COALESCE(SUM(ci.ofrenda), 0) AS total_ofrenda
+        FROM lideres l
+        JOIN hermanos h ON h.id = l.hermano_id
+        LEFT JOIN lideres lp ON lp.id = l.lider_padre_id 
+            AND (lp.es_pastor OR lp.rol_lider = 'APOSTOL')
+        LEFT JOIN hermanos hp ON hp.id = lp.hermano_id
+        LEFT JOIN celulas_informe ci ON ci.lider_id = l.id
+        WHERE l.activo AND lp.id IS NOT NULL
+        GROUP BY hp.nombre_completo, lp.red
+        ORDER BY hp.nombre_completo
+    """)
+    # Resumen agrupado por red
+    r["celulas_por_red"] = q("""
+        SELECT 
+            l.red,
+            COUNT(DISTINCT l.id) AS total_lideres,
+            COUNT(ci.id) AS total_informes,
+            SUM(CASE WHEN ci.realizo THEN 1 ELSE 0 END) AS realizadas,
+            SUM(CASE WHEN NOT ci.realizo THEN 1 ELSE 0 END) AS no_realizadas,
+            COALESCE(SUM(ci.ofrenda), 0) AS total_ofrenda
+        FROM lideres l
+        JOIN hermanos h ON h.id = l.hermano_id
+        LEFT JOIN celulas_informe ci ON ci.lider_id = l.id
+        WHERE l.activo
+        GROUP BY l.red
+        ORDER BY l.red
+    """)
     # Resumen único por líder + fila TOTAL (con encuentros desglosados por etapa)
     r["resumen"] = q("""SELECT v.lider, v.red, v.tipo_12, v.rol_lider, v.estado_celula, v.cantidad_celulas,
         v.cantidad_macrocelulas,
@@ -1739,7 +2059,11 @@ def reportes():
         "ruta_incompleta": ("Ruta incompleta", ["nombre_completo"]), "periodicidad": ("Periodicidad", ["nombre", "c"]),
         "por_12": ("Por Tipo 12", ["tipo_12", "c", "pastores"]),
         "resumen": ("Resumen por lider (unico + total)", ["lider", "red", "tipo_12", "rol_lider", "estado_celula", "celulas_hijas", "cantidad_macrocelulas", "discipulos_activos", "enc_lider", "d_tremendo", "d_fruto", "d_reenc", "d_crec", "d_lid"]),
-        "padre-discipulos": ("Líderes con hijos + discipulos a cargo", ["lider", "tipo_12", "n_hijos", "discipulos_activos"])}
+        "padre-discipulos": ("Líderes con hijos + discipulos a cargo", ["lider", "tipo_12", "n_hijos", "discipulos_activos"]),
+        # NUEVOS: Informes de Célula
+        "celulas_resumen": ("Informe Célula · Por Líder", ["lider", "red", "pastor", "total_informes", "realizadas", "no_realizadas", "total_ofrenda", "ultima_fecha"]),
+        "celulas_por_pastor": ("Informe Célula · Por Pastor", ["pastor", "red_pastor", "total_lideres", "total_informes", "realizadas", "no_realizadas", "total_ofrenda"]),
+        "celulas_por_red": ("Informe Célula · Por Red", ["red", "total_lideres", "total_informes", "realizadas", "no_realizadas", "total_ofrenda"])}
     if exp in ("excel", "pdf"):
         if ver == "todos":
             all_rows = []
@@ -2003,6 +2327,56 @@ def configuracion_accion():
                             q("UPDATE usuarios SET password_hash=%s, primer_login=TRUE WHERE id=%s", (generate_password_hash(nueva), item_id), commit=True)
                             log_audit("RESET_CLAVE","usuarios", f"id={item_id}")
                             flash(f"Contraseña actualizada (usuario id {item_id}) — deberá cambiarla al ingresar", "ok")
+
+            # === GENERAR CÓDIGOS DE LÍDERES (solo SUPERADMIN) ===
+            elif accion == "generar_codigos_lideres":
+                if session.get("rol") != "SUPERADMIN":
+                    flash("Solo SUPERADMIN puede generar códigos de líderes", "error")
+                else:
+                    modo = f.get("modo", "faltantes")  # "faltantes" | "todos"
+                    import secrets, string
+                    from openpyxl import Workbook
+                    from io import BytesIO
+                    from flask import send_file
+
+                    if modo == "todos":
+                        # Regenerar todos: limpiar y volver a crear
+                        lideres = q("SELECT l.id, h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY h.nombre_completo")
+                        q("UPDATE lideres SET codigo_informe=NULL WHERE activo", commit=True)
+                    else:
+                        # Solo los que no tienen código
+                        lideres = q("""SELECT l.id, h.nombre_completo FROM lideres l 
+                            JOIN hermanos h ON h.id=l.hermano_id 
+                            WHERE l.activo AND (l.codigo_informe IS NULL OR l.codigo_informe='')
+                            ORDER BY h.nombre_completo""")
+
+                    if not lideres:
+                        flash("No hay líderes para procesar", "error")
+                    else:
+                        codigos_usados = set(r["codigo_informe"] for r in q("SELECT codigo_informe FROM lideres WHERE codigo_informe IS NOT NULL"))
+                        wb = Workbook()
+                        ws = wb.active
+                        ws.title = "Codigos_Lideres"
+                        ws.append(["Líder ID", "Nombre", "Red", "Código (6 dígitos)"])
+
+                        for l in lideres:
+                            # Generar código único de 6 dígitos
+                            while True:
+                                codigo = ''.join(secrets.choice(string.digits) for _ in range(6))
+                                if codigo not in codigos_usados:
+                                    codigos_usados.add(codigo)
+                                    break
+                            q("UPDATE lideres SET codigo_informe=%s WHERE id=%s", (codigo, l["id"]), commit=True)
+                            # Obtener red para el Excel
+                            red = q("SELECT red FROM lideres WHERE id=%s", (l["id"],), one=True)
+                            ws.append([l["id"], l["nombre_completo"], red["red"] if red else "", codigo])
+
+                        buf = BytesIO()
+                        wb.save(buf)
+                        buf.seek(0)
+                        flash(f"✅ {len(lideres)} códigos generados ({'TODOS' if modo=='todos' else 'solo faltantes'})", "ok")
+                        return send_file(buf, as_attachment=True, download_name=f"codigos_lideres_{date.today().isoformat()}.xlsx",
+                            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         else:
             tablas_validas = [c["tabla"] for c in CATALOGOS]
