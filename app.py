@@ -2404,6 +2404,129 @@ def configuracion_accion():
                             nombre = q("SELECT h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id WHERE l.id=%s", (lider_id,), one=True)
                             flash(f"✅ Código generado para {nombre['nombre_completo']}: <strong>{codigo}</strong>", "ok")
 
+            # === GENERAR CÓDIGOS POR RED ===
+            elif accion == "generar_codigos_por_red":
+                if session.get("rol") not in ("SUPERADMIN", "ADMIN"):
+                    flash("Solo SUPERADMIN y ADMIN pueden generar códigos de líderes", "error")
+                else:
+                    red = f.get("red", "").strip()
+                    modo = f.get("modo", "faltantes")
+                    if not red:
+                        flash("Debe seleccionar una red", "error")
+                    else:
+                        import secrets, string
+                        from openpyxl import Workbook
+                        from io import BytesIO
+                        from flask import send_file
+                        from datetime import date
+
+                        if modo == "todos":
+                            lideres = q("""SELECT l.id, h.nombre_completo, l.red FROM lideres l
+                                JOIN hermanos h ON h.id=l.hermano_id 
+                                WHERE l.activo AND l.red=%s ORDER BY h.nombre_completo""", (red,))
+                            q("UPDATE lideres SET codigo_informe=NULL WHERE activo AND red=%s", (red,), commit=True)
+                        else:
+                            lideres = q("""SELECT l.id, h.nombre_completo, l.red FROM lideres l 
+                                JOIN hermanos h ON h.id=l.hermano_id 
+                                WHERE l.activo AND l.red=%s AND (l.codigo_informe IS NULL OR l.codigo_informe='')
+                                ORDER BY h.nombre_completo""", (red,))
+
+                        if not lideres:
+                            flash("No hay líderes en esa red para procesar", "error")
+                        else:
+                            codigos_usados = set(r["codigo_informe"] for r in q("SELECT codigo_informe FROM lideres WHERE codigo_informe IS NOT NULL"))
+                            wb = Workbook()
+                            ws = wb.active
+                            ws.title = "Codigos_Lideres"
+                            ws.append(["Líder ID", "Nombre", "Red", "Código (6 dígitos)"])
+
+                            for l in lideres:
+                                while True:
+                                    codigo = ''.join(secrets.choice(string.digits) for _ in range(6))
+                                    if codigo not in codigos_usados:
+                                        codigos_usados.add(codigo)
+                                        break
+                                q("UPDATE lideres SET codigo_informe=%s WHERE id=%s", (codigo, l["id"]), commit=True)
+                                ws.append([l["id"], l["nombre_completo"], l["red"], codigo])
+
+                            buf = BytesIO()
+                            wb.save(buf)
+                            buf.seek(0)
+                            flash(f"✅ {len(lideres)} códigos generados para red {red} ({'TODOS' if modo=='todos' else 'solo faltantes'})", "ok")
+                            return send_file(buf, as_attachment=True, download_name=f"codigos_lideres_{red}_{date.today().isoformat()}.xlsx",
+                                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+            # === EXPORTAR CÓDIGOS ACTUALES ===
+            elif accion == "exportar_codigos_lideres":
+                if session.get("rol") not in ("SUPERADMIN", "ADMIN"):
+                    flash("Solo SUPERADMIN y ADMIN pueden exportar códigos", "error")
+                else:
+                    filtro = f.get("filtro", "total")
+                    import secrets, string
+                    from openpyxl import Workbook
+                    from io import BytesIO
+                    from flask import send_file
+                    from datetime import date
+
+                    # Construir query según filtro
+                    if filtro == "total":
+                        query = """SELECT l.id, h.nombre_completo, l.red, l.codigo_informe,
+                                   l.created_at, l.updated_at
+                            FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
+                            WHERE l.activo ORDER BY l.red, h.nombre_completo"""
+                        params = ()
+                    elif filtro == "con_codigo":
+                        query = """SELECT l.id, h.nombre_completo, l.red, l.codigo_informe,
+                                   l.created_at, l.updated_at
+                            FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
+                            WHERE l.activo AND l.codigo_informe IS NOT NULL AND l.codigo_informe != ''
+                            ORDER BY l.red, h.nombre_completo"""
+                        params = ()
+                    elif filtro == "sin_codigo":
+                        query = """SELECT l.id, h.nombre_completo, l.red, l.codigo_informe,
+                                   l.created_at, l.updated_at
+                            FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
+                            WHERE l.activo AND (l.codigo_informe IS NULL OR l.codigo_informe = '')
+                            ORDER BY l.red, h.nombre_completo"""
+                        params = ()
+                    elif filtro.startswith("red_"):
+                        red = filtro.replace("red_", "")
+                        query = """SELECT l.id, h.nombre_completo, l.red, l.codigo_informe,
+                                   l.created_at, l.updated_at
+                            FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
+                            WHERE l.activo AND l.red=%s ORDER BY h.nombre_completo"""
+                        params = (red,)
+                    else:
+                        flash("Filtro no válido", "error")
+                        return redirect(url_for("configuracion"))
+
+                    lideres = q(query, params)
+
+                    if not lideres:
+                        flash("No hay datos para exportar con ese filtro", "error")
+                        return redirect(url_for("configuracion"))
+
+                    wb = Workbook()
+                    ws = wb.active
+                    ws.title = "Codigos_Lideres"
+                    ws.append(["Líder ID", "Nombre", "Red", "Código"])
+
+                    for l in lideres:
+                        ws.append([
+                            l["id"],
+                            l["nombre_completo"],
+                            l["red"],
+                            l["codigo_informe"] or ""
+                        ])
+
+                    buf = BytesIO()
+                    wb.save(buf)
+                    buf.seek(0)
+                    flash(f"✅ {len(lideres)} registros exportados", "ok")
+                    return send_file(buf, as_attachment=True,
+                        download_name=f"codigos_lideres_{filtro}_{date.today().isoformat()}.xlsx",
+                        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
         else:
             tablas_validas = [c["tabla"] for c in CATALOGOS]
             if tabla not in tablas_validas:

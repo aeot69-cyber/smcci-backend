@@ -311,6 +311,71 @@ function editarIcono(tabla, id, actual) {
     </div>
   </div>
 
+  <div class="card mb-3">
+    <div class="card-header bg-info text-white"><strong>Generar códigos por RED</strong></div>
+    <div class="card-body">
+      <form method="post" class="row g-2 align-items-end">
+        <input type="hidden" name="catalogo" value="__usuarios__">
+        <input type="hidden" name="accion" value="generar_codigos_por_red">
+        <div class="col-md-4">
+          <label class="form-label small">Seleccionar red</label>
+          <select class="form-select" name="red" required>
+            <option value="">— Seleccionar red —</option>
+            <option value="HOMBRES">HOMBRES</option>
+            <option value="MUJERES">MUJERES</option>
+            <option value="JOVENES">JOVENES</option>
+            <option value="MIXTO">MIXTO</option>
+            <option value="TEEN">TEEN</option>
+            <option value="NIÑOS">NIÑOS</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">Modo</label>
+          <select class="form-select" name="modo">
+            <option value="faltantes">Solo quienes NO tienen código</option>
+            <option value="todos">Regenerar TODOS (invalida actuales)</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small">&nbsp;</label>
+          <button class="btn btn-primary w-100" type="submit">🔑 Generar por red</button>
+        </div>
+      </form>
+      <small class="text-muted">Genera códigos solo para los líderes de la red seleccionada.</small>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header bg-success text-white"><strong>Exportar códigos actuales</strong></div>
+    <div class="card-body">
+      <form method="post" class="row g-2 align-items-end">
+        <input type="hidden" name="catalogo" value="__usuarios__">
+        <input type="hidden" name="accion" value="exportar_codigos_lideres">
+        <div class="col-md-4">
+          <label class="form-label small">Filtrar por</label>
+          <select class="form-select" name="filtro">
+            <option value="total">TODOS los líderes</option>
+            <option value="con_codigo">Solo con código generado</option>
+            <option value="sin_codigo">Solo SIN código</option>
+            <optgroup label="--- Por red ---">
+            <option value="red_HOMBRES">HOMBRES</option>
+            <option value="red_MUJERES">MUJERES</option>
+            <option value="red_JOVENES">JOVENES</option>
+            <option value="red_MIXTO">MIXTO</option>
+            <option value="red_TEEN">TEEN</option>
+            <option value="red_NIÑOS">NIÑOS</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small">&nbsp;</label>
+          <button class="btn btn-success w-100" type="submit">Exportar a Excel</button>
+        </div>
+      </form>
+      <small class="text-muted">Exporta a Excel los códigos según el filtro seleccionado (líder, red, código, fecha generación).</small>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-header bg-info text-white"><strong>Estado actual de códigos</strong></div>
     <div class="card-body">
