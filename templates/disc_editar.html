@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% block b %}<h4>Modificar asignación de discípulo</h4>
+<form method="post" class="card p-3">
+<div class="mb-3"><label>Hermano:</label>
+<select name="hermano" class="form-select">{% for h in hermanos %}<option value="{{h.id}}" {% if h.id==d.hermano_id %}selected{% endif %}>{{h.nombre_completo}}</option>{% endfor %}</select></div>
+<div class="mb-3"><label>Líder:</label>
+<select name="lider" class="form-select">{% for l in lideres %}<option value="{{l.id}}" {% if l.id==d.lider_id %}selected{% endif %}>{{l.nombre_completo}}</option>{% endfor %}</select></div>
+<div class="mb-3"><label>Periodicidad:</label>
+<select name="per" class="form-select"><option value="">--</option>{% for p in per %}<option value="{{p.id}}" {% if d.periodicidad_id==p.id %}selected{% endif %}>{{p.nombre}}</option>{% endfor %}</select></div>
+<div class="mb-3"><label><input type="checkbox" name="activo" {% if d.es_discipulo_activo %}checked{% endif %}> Discípulo activo</label></div>
+<div class="mb-3"><label>Observación:</label><input name="obs" class="form-control" value="{{d.observacion or ''}}"></div>
+<button class="btn btn-primary">Guardar cambios</button> <a href="/discipulado" class="btn btn-secondary">Cancelar</a>
+</form>{% endblock %}

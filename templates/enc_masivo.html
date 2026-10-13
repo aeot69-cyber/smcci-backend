@@ -1,0 +1,59 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3"><h4>🔥 Registro Masivo de Encuentros</h4>
+<p class="text-muted">Registra un encuentro para todos los discípulos activos de un líder de una sola vez.</p>
+
+<form class="row g-2 mb-3" method="get">
+<div class="col-md-5">
+<select class="form-select form-select-lg" name="lider" onchange="this.form.submit()">
+<option value="">-- Seleccionar líder --</option>
+{% for l in lideres %}<option value="{{l.id}}" {% if sel_lider==l.id %}selected{% endif %}>{{l.nombre}} ({{l.discipulos}} discípulos)</option>{% endfor %}
+</select></div>
+</form>
+
+{% if sel_lider %}
+<form method="post">
+<input type="hidden" name="lider" value="{{sel_lider}}">
+<div class="row g-3">
+<div class="col-md-4">
+<label><b>Etapa (Encuentro):</b></label>
+<select class="form-select" name="tipo" required>
+{% for t in tipos %}<option value="{{t.id}}">{{t.nombre}}</option>{% endfor %}
+</select></div>
+
+<div class="col-md-3">
+<label><b>Estado:</b></label>
+<select class="form-select" name="estado" required>
+<option>APROBADO</option><option>PENDIENTE</option><option>REPROBADO</option><option>NO ASISTE</option>
+</select></div>
+
+<div class="col-md-2">
+<label><b>Fecha:</b></label>
+<input type="date" class="form-control" name="fecha" value="{{fecha_hoy}}">
+</div>
+</div>
+
+{% if discipulos %}
+<div class="mt-3">
+<label><b>Discípulos que recibirán el encuentro ({{discipulos|length}}):</b></label>
+<div class="border rounded p-2" style="max-height:300px;overflow-y:auto">
+{% for d in discipulos %}
+<div class="form-check">
+<input class="form-check-input" type="checkbox" name="disc" value="{{d.id}}" id="d{{d.id}}" checked>
+<label class="form-check-label" for="d{{d.id}}">{{d.nombre_completo}}
+{% if d.ya_tiene %}<span class="badge bg-warning text-dark ms-1">Ya tiene {{d.ya_tiene}}</span>{% endif %}
+{% if d.estado_actual %}<span class="badge bg-info ms-1">{{d.estado_actual}}</span>{% endif %}
+</label>
+</div>
+{% endfor %}
+</div></div>
+
+<div class="mt-3">
+<button class="btn btn-success btn-lg" onclick="return confirm('¿Registrar encuentro para {{discipulos|length}} discípulos?')">✅ Registrar para todos seleccionados</button>
+<a href="/encuentros" class="btn btn-secondary">Cancelar</a>
+</div>
+{% else %}
+<div class="alert alert-warning mt-3">No hay discípulos activos para este líder.</div>
+{% endif %}
+</form>
+{% endif %}
+</div>{% endblock %}

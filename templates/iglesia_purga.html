@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-4 col-md-7 border-danger"><h4 class="text-danger">☠️ Purga completa: {{ig.nombre}}</h4>
+<div class="alert alert-danger"><b>Se borrarán TODOS los datos de esta iglesia.</b> Esta acción <b>NO</b> se puede deshacer.</div>
+<table class="table table-sm">
+<tr><th>Dato</th><th>Cantidad</th></tr>
+<tr><td>Hermanos</td><td><b>{{deps.hermanos}}</b></td></tr>
+<tr><td>Líderes</td><td><b>{{deps.lideres}}</b></td></tr>
+<tr><td>Usuarios</td><td><b>{{deps.usuarios}}</b></td></tr>
+<tr><td>Discipulados</td><td><b>{{deps.discipulados}}</b></td></tr>
+<tr><td>Encuentros</td><td><b>{{deps.encuentros}}</b></td></tr>
+<tr><td>Visitas</td><td><b>{{deps.visitas}}</b></td></tr>
+<tr><td>Seguimientos</td><td><b>{{deps.seguimiento}}</b></td></tr>
+<tr><td>Informes célula</td><td><b>{{deps.informes}}</b></td></tr>
+<tr><td>Iglesias hijas/grupos</td><td><b>{{deps.hijas}}</b></td></tr>
+</table>
+{% if deps.hijas > 0 %}
+<div class="alert alert-warning">Primero elimina o reasigna sus {{deps.hijas}} iglesia(s) dependiente(s).</div>
+<a href="/iglesias" class="btn btn-secondary">Volver</a>
+{% else %}
+<p>Para confirmar escribe el nombre exacto: <b>{{ig.nombre}}</b></p>
+<form method="post" action="/iglesias/{{ig.id}}/purga">
+<div class="mb-3"><input class="form-control" name="confirmar" placeholder="Escribe {{ig.nombre}} para confirmar" required autocomplete="off"></div>
+<button class="btn btn-danger" onclick="return confirm('Última advertencia: se borra TODO lo de {{ig.nombre}}. ¿Seguro?')">☠️ Sí, purgar todo</button>
+<a href="/iglesias" class="btn btn-secondary">Cancelar</a></form>
+{% endif %}</div>{% endblock %}

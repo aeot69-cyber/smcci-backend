@@ -1,0 +1,24 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3"><h4>⛪ Iglesias <small class="text-muted">Configuración global (SUPERADMIN)</small> <span class="badge bg-primary ms-2">{{rows|length}}</span></h4>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
+<li><b>Tipos:</b> MATRIZ = casa matriz · HIJA = iglesia hija · GRUPO = grupo de crecimiento.</li>
+<li><b>Padre:</b> a quién reporta (un GRUPO depende de una HIJA o de la MATRIZ; una HIJA depende de la MATRIZ).</li>
+<li>Los usuarios ADMIN_HIJA / ADMIN_GRUPO se crean en 👤 Usuarios eligiendo su iglesia.</li></ul></details>
+<a class="btn btn-success mb-2" href="/iglesias/nuevo">➕ Nueva iglesia</a>
+<div style="overflow-x:auto"><table class="table table-striped"><tr>
+<th>ID</th><th>Nombre</th><th>Tipo</th><th>Reporta a</th><th>Descripción</th><th>Creada</th><th>Hermanos</th><th>Líderes</th><th>Usuarios</th><th>Estado</th><th></th></tr>
+{% for r in rows %}<tr>
+<td>{{r.id}}</td><td><b>{{r.nombre}}</b></td>
+<td><span class="badge bg-primary">{{r.tipo}}</span></td>
+<td>{{r.padre_nombre or '—'}}</td>
+<td class="small">{{r.descripcion or '—'}}</td>
+<td class="small">{{r.created_at.strftime('%d/%m/%Y') if r.created_at else '—'}}</td>
+<td>{{r.hermanos}}</td><td>{{r.lideres}}</td><td>{{r.usuarios}}</td>
+<td>{{'✅' if r.activo else '❌'}}</td>
+<td class="text-nowrap"><a class="btn btn-sm btn-outline-primary" href="/iglesias/{{r.id}}/editar">✏️</a>
+{% if r.id != 1 %}
+<form method="post" action="/iglesias/{{r.id}}/toggle" style="display:inline" onsubmit="return confirm('¿{% if r.activo %}DESACTIVAR {{r.nombre}}? Sus usuarios no podrán entrar (se conserva todo){% else %}Reactivar {{r.nombre}}?{% endif %}')"><button class="btn btn-sm btn-outline-{% if r.activo %}warning{% else %}success{% endif %}">{% if r.activo %}⏸{% else %}▶{% endif %}</button></form>
+<a class="btn btn-sm btn-outline-danger" href="/iglesias/{{r.id}}/purga" title="Eliminar (pide confirmación)">🗑️</a>
+{% endif %}
+</td>
+</tr>{% endfor %}</table></div></div>{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-4 col-md-6"><h4>{{'✏️ Editar' if ig else '➕ Nueva'}} Iglesia</h4>
+<form method="post">
+Nombre:<input class="form-control" name="nombre" value="{{ig.nombre if ig else ''}}" required><br>
+Tipo:<select class="form-select" name="tipo">
+<option value="MATRIZ" {% if ig and ig.tipo=='MATRIZ' %}selected{% endif %}>MATRIZ (casa matriz)</option>
+<option value="HIJA" {% if not ig or ig.tipo=='HIJA' %}selected{% endif %}>HIJA (iglesia hija)</option>
+<option value="GRUPO" {% if ig and ig.tipo=='GRUPO' %}selected{% endif %}>GRUPO (grupo de crecimiento)</option>
+</select><br>
+Reporta a:<select class="form-select" name="padre"><option value="">— Ninguno (solo Matriz) —</option>{% for p in padres %}<option value="{{p.id}}" {% if ig and ig.iglesia_padre_id==p.id %}selected{% endif %}>{{p.nombre}} ({{p.tipo}})</option>{% endfor %}</select><br>
+Descripción:<textarea class="form-control" name="descripcion" rows="2">{{ig.descripcion if ig else ''}}</textarea><br>
+{% if ig %}<label><input type="checkbox" name="activo" {% if ig.activo %}checked{% endif %}> Activa</label><br>{% endif %}
+<button class="btn btn-success">💾 Guardar</button> <a href="/iglesias" class="btn btn-secondary">Cancelar</a></form></div>{% endblock %}

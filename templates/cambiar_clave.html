@@ -1,0 +1,33 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SMCCI - Cambiar Contraseña</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>body{background:#f4f6fb}.pw-toggle{position:relative}.pw-toggle input{padding-right:2.5rem}.pw-toggle .toggle-icon{position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;color:#6c757d;font-size:1.1rem}</style></head>
+<body class="bg-light"><div class="container mt-5"><div class="row justify-content-center"><div class="col-md-5">
+<div class="card p-4 shadow">
+<h4 class="text-center">🔐 Cambio de Contraseña</h4>
+<p class="text-muted text-center">Es su primer ingreso. Debe cambiar su contraseña para continuar.</p>
+{% for cat,msg in get_flashed_messages(with_categories=true) %}
+<div class="alert alert-{{'success' if cat=='ok' else 'danger'}}">{{msg}}</div>
+{% endfor %}
+<form method="post" action="/cambiar-clave">
+<div class="mb-3">
+<label class="form-label">Contraseña actual</label>
+<div class="pw-toggle"><input class="form-control" type="password" name="actual" id="pwd-actual" required><i class="bi bi-eye toggle-icon" onclick="togglePwd('pwd-actual',this)"></i></div>
+</div>
+<div class="mb-3">
+<label class="form-label">Nueva contraseña</label>
+<div class="pw-toggle"><input class="form-control" type="password" name="nueva" id="pwd-nueva" required minlength="8"><i class="bi bi-eye toggle-icon" onclick="togglePwd('pwd-nueva',this)"></i></div>
+<div class="form-text">
+Requisitos: mínimo 8 caracteres, 1 mayúscula, 1 minúscula, 1 número y 1 signo especial (!@#$%^&*)
+</div>
+</div>
+<div class="mb-3">
+<label class="form-label">Confirmar nueva contraseña</label>
+<div class="pw-toggle"><input class="form-control" type="password" name="confirmar" id="pwd-confirmar" required><i class="bi bi-eye toggle-icon" onclick="togglePwd('pwd-confirmar',this)"></i></div>
+</div>
+<button class="btn btn-primary w-100">Guardar Contraseña</button>
+</form>
+</div>
+</div></div></div>
+<script>function togglePwd(id,icon){const inp=document.getElementById(id);if(inp.type==='password'){inp.type='text';icon.className='bi bi-eye-slash toggle-icon'}else{inp.type='password';icon.className='bi bi-eye toggle-icon'}}</script>
+</body></html>

@@ -1,0 +1,73 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3"><h4>📖 Guía Espiritual por Líder</h4>
+<p class="text-muted">Marca los encuentros completados por cada discípulo. Un click guarda.</p>
+
+<form class="row g-2 mb-3" method="get">
+<div class="col-md-5">
+<select class="form-select form-select-lg" name="lider" onchange="this.form.submit()">
+<option value="">-- Seleccionar líder --</option>
+{% for l in lideres %}<option value="{{l.id}}" {% if sel_lider==l.id %}selected{% endif %}>{{l.nombre}} ({{l.discipulos}} discípulos)</option>{% endfor %}
+</select></div>
+</form>
+
+{% if sel_lider and discipulos %}
+<form method="post">
+<input type="hidden" name="lider" value="{{sel_lider}}">
+<div style="overflow-x:auto">
+<table class="table table-bordered table-sm">
+<thead class="table-dark">
+<tr><th>Hermano</th>
+{% for t in tipos %}<th class="text-center" style="min-width:100px">{{t.nombre}}</th>{% endfor %}
+</tr></thead>
+<tbody>
+{% for d in discipulos %}
+<tr>
+<td><b>{{d.nombre_completo}}</b></td>
+{% for t in tipos %}
+{% set key = d.id ~ '_' ~ t.id %}
+<td class="text-center">
+{% if d['enc_' ~ t.id] == 'APROBADO' %}
+<button type="submit" name="toggle" value="{{d.id}}|{{t.id}}|PENDIENTE" class="btn btn-sm btn-success" title="APROBADO - clic para desmarcar">✅</button>
+{% elif d['enc_' ~ t.id] == 'REPROBADO' %}
+<button type="submit" name="toggle" value="{{d.id}}|{{t.id}}|PENDIENTE" class="btn btn-sm btn-danger" title="REPROBADO - clic para desmarcar">❌</button>
+{% elif d['enc_' ~ t.id] == 'NO ASISTE' %}
+<button type="submit" name="toggle" value="{{d.id}}|{{t.id}}|PENDIENTE" class="btn btn-sm btn-warning" title="NO ASISTE - clic para desmarcar">⚠️</button>
+{% else %}
+<label class="mb-0"><input type="checkbox" name="marcado" value="{{d.id}}|{{t.id}}" class="form-check-input" title="Marcar para aplicar masivo"> ⬜</label>
+{% endif %}
+</td>
+{% endfor %}
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+<div class="mt-2">
+<label><b>Cambiar todos los seleccionados a:</b></label>
+<select name="masivo_estado" class="form-select" style="width:200px;display:inline-block">
+<option value="APROBADO">✅ APROBADO</option>
+<option value="PENDIENTE">⬜ PENDIENTE</option>
+<option value="REPROBADO">❌ REPROBADO</option>
+<option value="NO ASISTE">⚠️ NO ASISTE</option>
+</select>
+<button type="submit" name="action" value="masivo" class="btn btn-primary">Aplicar a marcados</button>
+</div>
+</form>
+
+<div class="mt-3">
+<h5>Resumen del líder</h5>
+<table class="table table-sm">
+<tr><th>Etapa</th><th>Aprobados</th><th>Pendientes</th><th>%</th></tr>
+{% for t in tipos %}
+{% set ap = stats[t.id]['aprobados'] if t.id in stats else 0 %}
+{% set total = stats[t.id]['total'] if t.id in stats else discipulos|length %}
+<tr><td>{{t.nombre}}</td><td>{{ap}}</td><td>{{total - ap}}</td>
+<td>{% if total > 0 %}{{(ap * 100 / total)|round(0)|int}}%{% else %}0%{% endif %}</td></tr>
+{% endfor %}
+</table></div>
+
+{% elif sel_lider %}
+<div class="alert alert-warning">No hay discípulos activos para este líder.</div>
+{% endif %}
+</div>{% endblock %}

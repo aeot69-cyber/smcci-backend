@@ -1,0 +1,6 @@
+﻿__pycache__/
+*.pyc
+*.pyo
+.env
+templates/templates/
+seguimiento_2026-09-14.xlsx
