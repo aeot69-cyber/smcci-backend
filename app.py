@@ -2072,8 +2072,10 @@ def visita_eliminar(vid):
 def celulas_informe_lista():
     exp = request.args.get("export", "")
     fi, pi = filtro_igl("ci")
-    rows = q(f"""SELECT ci.*, h1.nombre_completo AS lider_nombre, h2.nombre_completo AS pastor_nombre
+    rows = q(f"""SELECT ci.*, h1.nombre_completo AS lider_nombre, h2.nombre_completo AS pastor_nombre,
+        i.nombre AS iglesia_nombre
         FROM celulas_informe ci 
+        LEFT JOIN iglesias i ON i.id=ci.iglesia_id
         LEFT JOIN lideres l1 ON l1.id=ci.lider_id LEFT JOIN hermanos h1 ON h1.id=l1.hermano_id
         LEFT JOIN lideres l2 ON l2.id=ci.pastor_id LEFT JOIN hermanos h2 ON h2.id=l2.hermano_id
         WHERE 1=1{fi} ORDER BY ci.id DESC""", tuple(pi))
