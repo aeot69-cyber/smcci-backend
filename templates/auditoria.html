@@ -15,7 +15,7 @@
 </form>
 <div style="overflow-x:auto"><table class="table table-sm table-striped"><tr><th>Fecha</th><th>Usuario</th><th>Rol</th><th>Acción</th><th>Módulo</th><th>Detalle</th><th>IP</th></tr>
 {% for r in rows %}<tr>
-<td><small>{{r.created_at.strftime('%d/%m %H:%M') if r.created_at else ''}}</small></td>
+<td><small>{{r.created_at_local.strftime('%d/%m %H:%M') if r.created_at_local else ''}}</small></td>
 <td><b>{{r.username or '—'}}</b></td>
 <td><span class="badge bg-secondary">{{r.rol or '—'}}</span></td>
 <td><span class="badge bg-{{'success' if r.accion=='LOGIN' else 'warning' if r.accion=='LOGOUT' else 'primary' if r.accion=='CREAR' else 'info' if r.accion=='EDITAR' else 'danger' if r.accion=='ELIMINAR' else 'dark'}}">{{r.accion}}</span></td>

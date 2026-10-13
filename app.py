@@ -2149,11 +2149,17 @@ def auditoria():
     if fhasta:
         where += " AND created_at::date <= %s"
         params.append(fhasta)
-    rows = q(f"SELECT * FROM auditoria {where} ORDER BY created_at DESC LIMIT 500", tuple(params))
+    # Convertir UTC a America/Santiago para mostrar hora local
+    rows = q(f"""
+        SELECT 
+            id, usuario_id, username, rol, accion, modulo, detalle, ip,
+            (created_at AT TIME ZONE 'America/Santiago') AS created_at_local
+        FROM auditoria {where} ORDER BY created_at DESC LIMIT 500
+    """, tuple(params))
     if exp == "excel":
-        return to_excel(rows, ["created_at","username","rol","accion","modulo","detalle","ip"], "auditoria.xlsx")
+        return to_excel(rows, ["created_at_local","username","rol","accion","modulo","detalle","ip"], "auditoria.xlsx")
     if exp == "pdf":
-        return to_pdf("Auditoría MCCI", rows, ["created_at","username","accion","modulo"], "auditoria.pdf")
+        return to_pdf("Auditoría MCCI", rows, ["created_at_local","username","accion","modulo"], "auditoria.pdf")
     mods = q("SELECT DISTINCT modulo FROM auditoria ORDER BY modulo")
     accs = q("SELECT DISTINCT accion FROM auditoria ORDER BY accion")
     return render_template("auditoria.html", rows=rows, texto=texto, fmod=fmod, facc=facc, fdesde=fdesde, fhasta=fhasta, mods=mods, accs=accs)
