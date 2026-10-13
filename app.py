@@ -2616,3 +2616,5 @@ def configuracion_accion():
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=False)
+#   B u i l d   t r i g g e r   1 0 / 1 3 / 2 0 2 6   1 7 : 3 0 : 1 1  
+ 
