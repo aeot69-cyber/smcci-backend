@@ -1076,6 +1076,27 @@ def iglesia_update(iid):
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("iglesias"))
 
+@app.post("/iglesias/<int:iid>/convertir")
+@login_req
+def iglesia_convertir(iid):
+    """GRUPO de crecimiento -> IGLESIA HIJA. Solo SUPERADMIN.
+    Conserva id, datos, líderes, informes y configuración (solo cambia el tipo)."""
+    if not _solo_superadmin(): return redirect(url_for("index"))
+    if iid == 1:
+        flash("CASA MATRIZ no se convierte", "error"); return redirect(url_for("iglesias"))
+    ig = q("SELECT * FROM iglesias WHERE id=%s", (iid,), one=True)
+    if not ig:
+        flash("No encontrada", "error"); return redirect(url_for("iglesias"))
+    if ig["tipo"] != "GRUPO":
+        flash(f"{ig['nombre']} ya es {ig['tipo']}, no es un grupo", "error"); return redirect(url_for("iglesias"))
+    try:
+        q("UPDATE iglesias SET tipo='HIJA' WHERE id=%s", (iid,), commit=True)
+        log_audit("CONVERTIR","iglesias", f"{ig['nombre']} GRUPO->HIJA id={iid}")
+        flash(f"{ig['nombre']} ahora es IGLESIA HIJA: conserva sus datos, líderes, informes y configuración. "
+              f"Asígnale su administrador (rol ADMIN_HIJA) en Usuarios.", "ok")
+    except Exception as e: flash(f"Error: {e}", "error")
+    return redirect(url_for("iglesias"))
+
 @app.post("/iglesias/<int:iid>/toggle")
 @login_req
 def iglesia_toggle(iid):

@@ -3,6 +3,7 @@
 <details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
 <li><b>Tipos:</b> MATRIZ = casa matriz · HIJA = iglesia hija · GRUPO = grupo de crecimiento.</li>
 <li><b>Padre:</b> a quién reporta (un GRUPO depende de una HIJA o de la MATRIZ; una HIJA depende de la MATRIZ).</li>
+<li><b>Conversión:</b> un GRUPO puede convertirse en IGLESIA HIJA con el botón 🏛️ (solo SUPERADMIN): conserva todos sus datos y configuración; después se le asigna su ADMIN_HIJA en Usuarios.</li>
 <li>Los usuarios ADMIN_HIJA / ADMIN_GRUPO se crean en 👤 Usuarios eligiendo su iglesia.</li></ul></details>
 <a class="btn btn-success mb-2" href="/iglesias/nuevo">➕ Nueva iglesia</a>
 <div style="overflow-x:auto"><table class="table table-striped"><tr>
@@ -16,6 +17,9 @@
 <td>{{r.hermanos}}</td><td>{{r.lideres}}</td><td>{{r.usuarios}}</td>
 <td>{{'✅' if r.activo else '❌'}}</td>
 <td class="text-nowrap"><a class="btn btn-sm btn-outline-primary" href="/iglesias/{{r.id}}/editar">✏️</a>
+{% if r.tipo == 'GRUPO' %}
+<form method="post" action="/iglesias/{{r.id}}/convertir" style="display:inline" onsubmit="return confirm('¿Convertir {{r.nombre}} en IGLESIA HIJA? Pasará a ser una sede propia; conserva datos, líderes e informes. Después asígnele su ADMIN_HIJA en Usuarios.')"><button class="btn btn-sm btn-outline-success" title="Convertir grupo en iglesia hija">🏛️</button></form>
+{% endif %}
 {% if r.id != 1 %}
 <form method="post" action="/iglesias/{{r.id}}/toggle" style="display:inline" onsubmit="return confirm('¿{% if r.activo %}DESACTIVAR {{r.nombre}}? Sus usuarios no podrán entrar (se conserva todo){% else %}Reactivar {{r.nombre}}?{% endif %}')"><button class="btn btn-sm btn-outline-{% if r.activo %}warning{% else %}success{% endif %}">{% if r.activo %}⏸{% else %}▶{% endif %}</button></form>
 <a class="btn btn-sm btn-outline-danger" href="/iglesias/{{r.id}}/purga" title="Eliminar (pide confirmación)">🗑️</a>
