@@ -4,13 +4,15 @@
 <li><b>Tipos:</b> MATRIZ = casa matriz · HIJA = iglesia hija · GRUPO = grupo de crecimiento.</li>
 <li><b>Padre:</b> a quién reporta (un GRUPO depende de una HIJA o de la MATRIZ; una HIJA depende de la MATRIZ).</li>
 <li><b>Conversión:</b> un GRUPO puede convertirse en IGLESIA HIJA con el botón 🏛️ (solo SUPERADMIN): conserva todos sus datos y configuración; después se le asigna su ADMIN_HIJA en Usuarios.</li>
+<li><b>Códigos:</b> cada iglesia numera sus hermanos con su prefijo (ej. NOR0001); el prefijo es único en todo el sistema y se define/edita con ✏️.</li>
 <li>Los usuarios ADMIN_HIJA / ADMIN_GRUPO se crean en 👤 Usuarios eligiendo su iglesia.</li></ul></details>
 <a class="btn btn-success mb-2" href="/iglesias/nuevo">➕ Nueva iglesia</a>
 <div style="overflow-x:auto"><table class="table table-striped"><tr>
-<th>ID</th><th>Nombre</th><th>Tipo</th><th>Reporta a</th><th>Descripción</th><th>Creada</th><th>Hermanos</th><th>Líderes</th><th>Usuarios</th><th>Estado</th><th></th></tr>
+<th>ID</th><th>Nombre</th><th>Tipo</th><th>Cód.</th><th>Reporta a</th><th>Descripción</th><th>Creada</th><th>Hermanos</th><th>Líderes</th><th>Usuarios</th><th>Estado</th><th></th></tr>
 {% for r in rows %}<tr>
 <td>{{r.id}}</td><td><b>{{r.nombre}}</b></td>
 <td><span class="badge bg-primary">{{r.tipo}}</span></td>
+<td><span class="badge bg-secondary" title="Prefijo de códigos de hermanos">{{r.prefijo_codigo or '—'}}</span></td>
 <td>{{r.padre_nombre or '—'}}</td>
 <td class="small">{{r.descripcion or '—'}}</td>
 <td class="small">{{r.created_at.strftime('%d/%m/%Y') if r.created_at else '—'}}</td>

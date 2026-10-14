@@ -1040,13 +1040,31 @@ def iglesia_crear():
     tipo = f.get("tipo") or "HIJA"
     padre = f.get("padre") or None
     descripcion = (f.get("descripcion") or "").strip()
+    pref = (f.get("prefijo") or "").strip().upper()
     if not nombre:
         flash("El nombre es obligatorio", "error"); return redirect(url_for("iglesias"))
+    if pref and (not pref.isascii() or not pref.isalnum() or not (2 <= len(pref) <= 6)):
+        flash("El prefijo del código debe tener de 2 a 6 letras o números (ej. NOR)", "error")
+        return redirect(url_for("iglesia_nueva"))
+    if not pref:
+        pref = _prefijo_sugerido(nombre)
+    if q("SELECT 1 FROM iglesias WHERE UPPER(prefijo_codigo)=%s LIMIT 1", (pref,), one=True):
+        flash(f"El prefijo {pref} ya está usado por otra iglesia: elige otro", "error")
+        return redirect(url_for("iglesia_nueva"))
+    if q("SELECT 1 FROM hermanos WHERE codigo ~ %s LIMIT 1", ("^" + pref + "[0-9]{4}$",), one=True):
+        flash(f"Ya existen códigos {pref}#### en el sistema: elige otro prefijo", "error")
+        return redirect(url_for("iglesia_nueva"))
     try:
-        q("INSERT INTO iglesias(nombre,tipo,iglesia_padre_id,descripcion) VALUES(%s,%s,%s,%s)",
-          (nombre, tipo, int(padre) if padre else None, descripcion), commit=True)
-        log_audit("CREAR","iglesias", f"{nombre} tipo={tipo}")
-        flash("Iglesia creada", "ok")
+        c = db()
+        with c.cursor() as cur:
+            cur.execute("""INSERT INTO iglesias(nombre,tipo,iglesia_padre_id,descripcion,prefijo_codigo)
+                VALUES(%s,%s,%s,%s,%s) RETURNING id""",
+                (nombre, tipo, int(padre) if padre else None, descripcion, pref))
+            nuevo_id = cur.fetchone()["id"]
+            cur.execute("CREATE SEQUENCE IF NOT EXISTS seq_codigo_igl_%d" % nuevo_id)
+            c.commit()
+        log_audit("CREAR","iglesias", f"{nombre} tipo={tipo} prefijo={pref}")
+        flash(f"Iglesia creada: sus hermanos se numerarán como {pref}0001", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("iglesias"))
 
@@ -1066,12 +1084,32 @@ def iglesia_update(iid):
     if iid == 1:
         flash("CASA MATRIZ no se edita: es la raiz del sistema", "error"); return redirect(url_for("iglesias"))
     f = request.form
+    ig = q("SELECT nombre, COALESCE(prefijo_codigo,'') AS prefijo FROM iglesias WHERE id=%s", (iid,), one=True)
+    pref = (f.get("prefijo") or "").strip().upper() or (ig["prefijo"] if ig else "")
+    if pref and (not pref.isascii() or not pref.isalnum() or not (2 <= len(pref) <= 6)):
+        flash("El prefijo del código debe tener de 2 a 6 letras o números (ej. NOR)", "error")
+        return redirect(url_for("iglesia_editar", iid=iid))
+    if pref != (ig["prefijo"] if ig else "").upper():
+        if q("SELECT 1 FROM iglesias WHERE UPPER(prefijo_codigo)=%s AND id!=%s LIMIT 1", (pref, iid), one=True):
+            flash(f"El prefijo {pref} ya está usado por otra iglesia: elige otro", "error")
+            return redirect(url_for("iglesia_editar", iid=iid))
+        if q("SELECT 1 FROM hermanos WHERE codigo ~ %s AND iglesia_id!=%s LIMIT 1", ("^" + pref + "[0-9]{4}$", iid), one=True):
+            flash(f"Ya existen códigos {pref}#### de otra iglesia: elige otro prefijo", "error")
+            return redirect(url_for("iglesia_editar", iid=iid))
+        # Con el prefijo nuevo la numeración continúa desde el máximo existente
+        seq = "seq_codigo_igl_%d" % iid
+        q("CREATE SEQUENCE IF NOT EXISTS " + seq, commit=True)
+        mx = q("SELECT COALESCE(MAX((substring(codigo FROM '([0-9]+)$'))::INT),0) AS m FROM hermanos WHERE codigo ~ %s",
+               ("^" + pref + "[0-9]{4}$",), one=True)["m"]
+        q("SELECT setval(%s, %s, false)", (seq, mx + 1), commit=True)
     try:
         padre = f.get("padre") or None
-        q("UPDATE iglesias SET nombre=%s, tipo=%s, iglesia_padre_id=%s, activo=%s, descripcion=%s WHERE id=%s",
+        q("""UPDATE iglesias SET nombre=%s, tipo=%s, iglesia_padre_id=%s, activo=%s,
+            descripcion=%s, prefijo_codigo=%s WHERE id=%s""",
           ((f.get("nombre") or "").strip().upper(), f.get("tipo") or "HIJA",
-           int(padre) if padre else None, f.get("activo") == "on", (f.get("descripcion") or "").strip(), iid), commit=True)
-        log_audit("EDITAR","iglesias", f"id={iid}")
+           int(padre) if padre else None, f.get("activo") == "on", (f.get("descripcion") or "").strip(),
+           pref, iid), commit=True)
+        log_audit("EDITAR","iglesias", f"id={iid} prefijo={pref}")
         flash("Iglesia actualizada", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
     return redirect(url_for("iglesias"))
@@ -1143,6 +1181,11 @@ def iglesia_eliminar(iid):
     q("DELETE FROM roles_permisos WHERE iglesia_id=%s", (iid,), commit=True)
     q("DELETE FROM auditoria WHERE iglesia_id=%s", (iid,), commit=True)
     q("DELETE FROM iglesias WHERE id=%s", (iid,), commit=True)
+    try:
+        q("SET LOCAL lock_timeout='5s'; DROP SEQUENCE IF EXISTS seq_codigo_igl_%d" % iid, commit=True)
+    except Exception:
+        try: db().rollback()
+        except: pass  # secuencia huérfana inofensiva; no romper la eliminación
     log_audit("ELIMINAR","iglesias", f"id={iid} {ig['nombre']}")
     flash(f"Iglesia {ig['nombre']} eliminada por completo", "ok")
     return redirect(url_for("iglesias"))
@@ -1205,6 +1248,14 @@ def iglesia_purga_ejecutar(iid):
             cur.execute("DELETE FROM auditoria WHERE iglesia_id=%s", (iid,))
             cur.execute("DELETE FROM iglesias WHERE id=%s", (iid,))
             c.commit()
+        # Secuencia aparte y "aunque falle" (con timeout): si algún cliente
+        # retiene la secuencia (p. ej. una consulta a pg_sequences en una
+        # transacción abierta), la purga NO debe quedar colgada.
+        try:
+            q("SET LOCAL lock_timeout='5s'; DROP SEQUENCE IF EXISTS seq_codigo_igl_%d" % iid, commit=True)
+        except Exception:
+            try: db().rollback()
+            except: pass  # queda una secuencia huérfana (inofensiva)
         log_audit("ELIMINAR","iglesias", f"purga id={iid} {ig['nombre']}")
         flash(f"Iglesia {ig['nombre']} y TODOS sus datos eliminados", "ok")
     except Exception as e:
@@ -1263,6 +1314,43 @@ def hermanos():
     tipos_hermano = get_catalogo("catalogo_tipo_hermano")
     return render_template("hermanos.html", rows=rows, texto=texto, ftipo=ftipo, festado=festado, tipos_hermano=tipos_hermano)
 
+# ---------- CÓDIGO DE HERMANOS POR IGLESIA (prefijo + secuencia propia) ----------
+def _prefijo_sugerido(nombre, iglesia_id=None, excluir_id=None):
+    """Prefijo por defecto a partir del nombre: 'IGLESIA NORTE' -> 'NOR'.
+    Si colisiona con otra iglesia se alarga hasta 6 letras; en último
+    caso usa el id (único por definición)."""
+    base = (nombre or "IGLESIA").upper().strip()
+    for p in ("IGLESIA", "GRUPO", "CASA", "COMUNIDAD", "RED"):
+        if base.startswith(p + " "):
+            base = base[len(p) + 1:]
+            break
+    base = "".join(ch for ch in base if ch.isalpha()) or "IGL"
+    exi = lambda cand: q("SELECT 1 FROM iglesias WHERE UPPER(prefijo_codigo)=%s AND id!=%s LIMIT 1",
+                         (cand, excluir_id or 0), one=True)
+    cand, n = base[:3], 3
+    while n < 6 and exi(cand):
+        n += 1
+        cand = base[:n]
+    if exi(cand):
+        cand = ("Z%d" % (iglesia_id or 0))[:6]
+    return cand
+
+def _codigo_hermano(iglesia_id):
+    """Código de hermano único en todo el sistema: PREFIJO DE LA IGLESIA + su
+    secuencia propia (MATRIZ->MCCI0886, hija->NOR0001, grupo->GRA0001).
+    Cada sede numera desde 0001 y no se pisa con las demás."""
+    iglesia_id = int(iglesia_id or 1)
+    row = q("SELECT nombre, COALESCE(NULLIF(UPPER(prefijo_codigo),''), '') AS p FROM iglesias WHERE id=%s",
+            (iglesia_id,), one=True)
+    pref = (row["p"] if row else "")
+    if not pref:
+        pref = _prefijo_sugerido(row["nombre"] if row else "IGLESIA", iglesia_id)
+        q("UPDATE iglesias SET prefijo_codigo=%s WHERE id=%s AND prefijo_codigo IS NULL",
+          (pref, iglesia_id), commit=True)
+    seq = "seq_codigo_igl_%d" % iglesia_id
+    q("CREATE SEQUENCE IF NOT EXISTS " + seq, commit=True)
+    return q("SELECT %s || LPAD(nextval(%s)::text,4,'0') AS c", (pref, seq), one=True)["c"]
+
 @app.get("/hermanos/nuevo")
 @login_req
 @permiso_req("hermanos", "crear")
@@ -1286,7 +1374,7 @@ def hermano_crear():
     if inv and not exigir_igl("hermanos", inv):
         flash("El hermano que invita no es de tu iglesia", "error"); return redirect(url_for("hermano_nuevo"))
     try:
-        codigo = q("SELECT 'MCCI' || LPAD(nextval('seq_codigo')::text,4,'0') AS c", one=True)["c"]
+        codigo = _codigo_hermano(igl)
         tipo_h = f.get("tipo_hermano") or 'NINGUNO'
         q("""INSERT INTO hermanos(codigo,tipo_hermano,rut,nombres,apellido_paterno,apellido_materno,fecha_nacimiento,fecha_aniversario,
             correo,telefono,direccion,comuna_id,sexo,estado_civil,invitado_por_id,invitado_por_texto,iglesia_id) VALUES(%s,%s,NULL,%s,%s,%s,NULLIF(%s,'')::date,NULLIF(%s,'')::date,
@@ -2038,7 +2126,7 @@ def visita_integrar(vid):
     nombres = nombres.upper()
     paterno = paterno.upper()
     try:
-        codigo = q("SELECT 'MCCI' || LPAD(nextval('seq_codigo')::text,4,'0') AS c", one=True)["c"]
+        codigo = _codigo_hermano(v["iglesia_id"])
         c = db()
         with c.cursor() as cur:
             cur.execute("""INSERT INTO hermanos(codigo,tipo_hermano,nombres,apellido_paterno,telefono,direccion,correo,comuna_id,invitado_por_id,invitado_por_texto,iglesia_id)
