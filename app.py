@@ -2198,7 +2198,8 @@ def celulas_informe_nuevo():
         JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo{fl} ORDER BY h.nombre_completo""", tuple(pl))
     comunas = q("SELECT id, nombre FROM comunas ORDER BY nombre")
     modalidades = get_catalogo("catalogo_modalidad_celula")
-    return render_template("celulas_informe_form.html", c=None, lideres=lideres, comunas=comunas, modalidades=modalidades)
+    reds = [x["red"] for x in q("SELECT DISTINCT red FROM lideres WHERE activo AND COALESCE(red,'')<>'' ORDER BY red")]
+    return render_template("celulas_informe_form.html", c=None, lideres=lideres, comunas=comunas, modalidades=modalidades, reds=reds)
 
 @app.post("/celulas-informe/nuevo")
 @login_req
@@ -2245,7 +2246,10 @@ def celulas_informe_editar(cid):
         JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo{fl} ORDER BY h.nombre_completo""", tuple(pl))
     comunas = q("SELECT id, nombre FROM comunas ORDER BY nombre")
     modalidades = get_catalogo("catalogo_modalidad_celula")
-    return render_template("celulas_informe_form.html", c=c, lideres=lideres, comunas=comunas, modalidades=modalidades)
+    reds = [x["red"] for x in q("SELECT DISTINCT red FROM lideres WHERE activo AND COALESCE(red,'')<>'' ORDER BY red")]
+    if c and c.get("red") and c["red"] not in reds:
+        reds.append(c["red"])
+    return render_template("celulas_informe_form.html", c=c, lideres=lideres, comunas=comunas, modalidades=modalidades, reds=reds)
 
 @app.post("/celulas-informe/<int:cid>/editar")
 @login_req

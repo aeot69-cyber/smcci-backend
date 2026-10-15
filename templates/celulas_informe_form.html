@@ -22,10 +22,7 @@
 <label class="form-label">Género de la Célula *</label>
 <select class="form-select" name="red" required>
 <option value="">Seleccionar...</option>
-<option value="ADOLESCENTES" {{'selected' if c and c.red=='ADOLESCENTES'}}>ADOLESCENTES (TEEN)</option>
-<option value="JOVENES" {{'selected' if c and c.red=='JOVENES'}}>JOVENES (YOUTH)</option>
-<option value="MUJERES" {{'selected' if c and c.red=='MUJERES'}}>MUJERES</option>
-<option value="HOMBRES" {{'selected' if c and c.red=='HOMBRES'}}>HOMBRES</option>
+{% for r in reds %}<option value="{{r}}" {{'selected' if c and c.red==r}}>{{r}}</option>{% endfor %}
 </select></div>
 
 <div class="col-md-3">
