@@ -2560,6 +2560,7 @@ def reportes():
     fh, ph = filtro_igl("h")
     f0, p0 = filtro_igl()
     fvv, pvv = filtro_igl("v")
+    fci, pci = filtro_igl("ci")
     r["por_red"] = q(f"SELECT red AS red,estado_celula,COUNT(*) AS c FROM lideres WHERE activo{f0} GROUP BY 1,2 ORDER BY 1,2", tuple(p0))
     r["por_comuna"] = q(f"""SELECT r.nombre_corto AS region,c.nombre AS comuna,COUNT(*) AS c FROM hermanos h
         LEFT JOIN comunas c ON c.id=h.comuna_id LEFT JOIN regiones r ON r.id=c.region_id WHERE h.activo{fh} GROUP BY 1,2 ORDER BY 3 DESC LIMIT 30""", tuple(ph))
@@ -2700,7 +2701,88 @@ def reportes():
                 rows = [{h: "" for h in heads}]
             if exp == "excel": return to_excel(rows, heads, f"reporte_{ver}.xlsx")
             return to_pdf(title, rows, heads, f"reporte_{ver}.pdf")
-    return render_template("reportes.html", r=r, ver=ver)
+    # ---------- GRÁFICOS (sección validada — solo estos 5) ----------
+    from datetime import timedelta
+    def _iso(s):
+        try: return date.fromisoformat(s or "")
+        except Exception: return None
+    hoy = date.today()
+    # Rango por defecto: mismo patrón "agosto–octubre" (inicios de mes, últimos 3 meses)
+    mdef, adef = hoy.month - 2, hoy.year
+    if mdef < 1: mdef += 12; adef -= 1
+    mfin, afin = hoy.month + 1, hoy.year
+    if mfin > 12: mfin = 1; afin += 1
+    desde = _iso(request.args.get("desde")) or date(adef, mdef, 1)
+    hasta = _iso(request.args.get("hasta")) or (date(afin, mfin, 1) - timedelta(days=1))
+    if desde > hasta: desde, hasta = hasta, desde
+    if (hasta - desde).days > 730: desde = hasta - timedelta(days=730)
+    p_fec = (desde.isoformat(), hasta.isoformat())
+
+    # 1) Discípulos que asistieron a célula — por red × mes (de los informes)
+    g_asistencia = q(f"""SELECT ci.red AS red, to_char(ci.fecha,'YYYY-MM') AS mes,
+        SUM(COALESCE(array_length(string_to_array(NULLIF(ci.discipulos_asistieron,''), ','), 1), 0)) AS c
+        FROM celulas_informe ci
+        WHERE ci.realizo AND ci.red IS NOT NULL AND ci.red <> ''
+          AND ci.fecha BETWEEN %s AND %s{fci}
+        GROUP BY 1,2 ORDER BY 1,2""", p_fec + tuple(pci))
+    # 2) Informes por red — realizadas vs no (período)
+    g_inf_red = q(f"""SELECT ci.red AS red,
+        SUM(CASE WHEN ci.realizo THEN 1 ELSE 0 END) AS realizadas,
+        SUM(CASE WHEN NOT ci.realizo THEN 1 ELSE 0 END) AS no_realizadas
+        FROM celulas_informe ci
+        WHERE ci.red IS NOT NULL AND ci.red <> '' AND ci.fecha BETWEEN %s AND %s{fci}
+        GROUP BY 1 ORDER BY 1""", p_fec + tuple(pci))
+    # 3) Informes por mes — realizadas vs no (período)
+    g_inf_mes = q(f"""SELECT to_char(ci.fecha,'YYYY-MM') AS mes,
+        SUM(CASE WHEN ci.realizo THEN 1 ELSE 0 END) AS realizadas,
+        SUM(CASE WHEN NOT ci.realizo THEN 1 ELSE 0 END) AS no_realizadas
+        FROM celulas_informe ci
+        WHERE ci.fecha BETWEEN %s AND %s{fci}
+        GROUP BY 1 ORDER BY 1""", p_fec + tuple(pci))
+    # 4) Discípulos actuales — por red × tipo (foto, sin filtro de fechas)
+    g_disc = q(f"""WITH hred AS (
+        SELECT h.id, h.tipo_hermano,
+          (SELECT l.red FROM discipulado d JOIN lideres l ON l.id=d.lider_id
+             WHERE d.hermano_id=h.id AND d.fecha_fin IS NULL ORDER BY d.id DESC LIMIT 1) AS red
+        FROM hermanos h WHERE h.activo{fh})
+        SELECT COALESCE(NULLIF(red,''),'SIN RED') AS red,
+               COALESCE(NULLIF(tipo_hermano,''),'SIN CLASIFICAR') AS tipo,
+               COUNT(*) AS c FROM hred GROUP BY 1,2 ORDER BY 1,2""", tuple(ph))
+    # 5) Visitas recibidas — por red × estado (vacío hoy; se irá llenando)
+    g_vis = q(f"""SELECT
+        COALESCE(NULLIF((SELECT l.red FROM discipulado d JOIN lideres l ON l.id=d.lider_id
+            WHERE d.hermano_id=v.hermano_id AND d.fecha_fin IS NULL ORDER BY d.id DESC LIMIT 1), ''), 'SIN RED') AS red,
+        COALESCE(NULLIF(v.estado,''),'(SIN ESTADO)') AS estado, COUNT(*) AS c
+        FROM visitas v
+        WHERE COALESCE(v.fecha_visita, v.created_at::date) BETWEEN %s AND %s{fvv}
+        GROUP BY 1,2 ORDER BY 1,2""", p_fec + tuple(pvv))
+
+    def _grupo(rows, cat, ser, val):
+        """Estructura Chart.js: categorías en X, una serie por valor de `ser`."""
+        cats = sorted({str(x[cat]) for x in rows})
+        sers = sorted({str(x[ser]) for x in rows})
+        idx = {(str(x[cat]), str(x[ser])): int(x[val] or 0) for x in rows}
+        return {"labels": cats,
+                "datasets": [{"label": s, "data": [idx.get((c, s), 0) for c in cats]} for s in sers]}
+
+    def _dos(rows, cat):
+        """Estructura Chart.js: categorías en X + series Realizadas/No realizadas."""
+        cats = sorted({str(x[cat]) for x in rows})
+        idx = {str(x[cat]): x for x in rows}
+        col = lambda k: [int(idx[c][k] or 0) if c in idx else 0 for c in cats]
+        return {"labels": cats, "datasets": [
+            {"label": "Realizadas", "data": col("realizadas")},
+            {"label": "No realizadas", "data": col("no_realizadas")}]}
+
+    charts = {
+        "asistencia":   _grupo(g_asistencia, "red", "mes", "c"),
+        "informes_red": _dos(g_inf_red, "red"),
+        "informes_mes": _dos(g_inf_mes, "mes"),
+        "discipulos":   _grupo(g_disc, "red", "tipo", "c"),
+        "visitas":      _grupo(g_vis, "red", "estado", "c"),
+    }
+    return render_template("reportes.html", r=r, ver=ver, graficos=charts,
+                           desde=desde.isoformat(), hasta=hasta.isoformat())
 
 # ---------- APIs (compatibilidad) ----------
 @app.post("/api/login")
