@@ -27,7 +27,7 @@
 
 <div class="col-md-3">
 <label class="form-label">Día de Célula *</label>
-<input class="form-control" type="date" name="fecha" value="{{c.fecha if c else ''}}" required></div>
+<input class="form-control" type="date" name="fecha" value="{{(c.fecha or '') if c else ''}}" required></div>
 
 <div class="col-md-3">
 <label class="form-label">Mes *</label>
@@ -40,7 +40,7 @@
 
 <div class="col-md-6">
 <label class="form-label">Dirección de su célula</label>
-<input class="form-control" name="direccion" value="{{c.direccion if c else ''}}"></div>
+<input class="form-control" name="direccion" value="{{(c.direccion or '') if c else ''}}"></div>
 
 <div class="col-md-3">
 <label class="form-label">Comuna</label>
@@ -51,7 +51,7 @@
 
 <div class="col-md-3">
 <label class="form-label">Horario</label>
-<input class="form-control" name="horario" placeholder="Ej: 19:00" value="{{c.horario if c else ''}}"></div>
+<input class="form-control" name="horario" placeholder="Ej: 19:00" value="{{(c.horario or '') if c else ''}}"></div>
 
 <div class="col-12">
 <label class="form-label">¿Realizó su célula esta semana? *</label>
@@ -74,17 +74,17 @@
 
 <div class="col-12" id="div_just" style="display:{{'block' if c and not c.realizo else 'none'}}">
 <label class="form-label">Justificación de por qué NO realizó su célula esta semana</label>
-<textarea class="form-control" name="justificacion" rows="2" placeholder="Motivo por el cual no se realizó la célula...">{{c.justificacion if c else ''}}</textarea>
+<textarea class="form-control" name="justificacion" rows="2" placeholder="Motivo por el cual no se realizó la célula...">{{(c.justificacion or '') if c else ''}}</textarea>
 </div>
 
 <div class="col-12">
 <label class="form-label">Nombre discípulos que asistieron *</label>
-<textarea class="form-control" name="asistieron" rows="3" placeholder="Nombres separados por coma..." required>{{c.discipulos_asistieron if c else ''}}</textarea>
+<textarea class="form-control" name="asistieron" rows="3" placeholder="Nombres separados por coma..." required>{{(c.discipulos_asistieron or '') if c else ''}}</textarea>
 </div>
 
 <div class="col-12">
 <label class="form-label">Nombre y justificación de discípulos que no asistieron</label>
-<textarea class="form-control" name="no_asistieron" rows="3" placeholder="Nombre - Justificación...">{{c.discipulos_no_asistieron if c else ''}}</textarea>
+<textarea class="form-control" name="no_asistieron" rows="3" placeholder="Nombre - Justificación...">{{(c.discipulos_no_asistieron or '') if c else ''}}</textarea>
 </div>
 
 <div class="col-md-6">
