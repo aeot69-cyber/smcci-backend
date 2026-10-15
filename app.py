@@ -2708,7 +2708,7 @@ def reportes():
 @app.get("/graficos")
 @login_req
 def graficos():
-    """8 gráficos validados: 5 de barras, 1 de líneas, 1 circular y 1 de anillo."""
+    """9 gráficos validados: 6 de barras, 1 de líneas, 1 circular y 1 de anillo."""
     from datetime import timedelta
     fh, ph = filtro_igl("h")
     fvv, pvv = filtro_igl("v")
@@ -2759,11 +2759,30 @@ def graficos():
         SELECT COALESCE(NULLIF(red,''),'SIN RED') AS red,
                COALESCE(NULLIF(tipo_hermano,''),'SIN CLASIFICAR') AS tipo,
                COUNT(*) AS c FROM hred GROUP BY 1,2 ORDER BY 1,2""", tuple(ph))
+    # Red de una visita (visitas no tiene columna red): líder responsable →
+    # invitador (líder o su líder) → hermano integrado → SIN RED.
+    _RED_VISITA = """COALESCE(
+        NULLIF((SELECT l.red FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
+                WHERE v.responsable IS NOT NULL AND h.nombre_completo=v.responsable AND l.activo
+                ORDER BY l.id DESC LIMIT 1), ''),
+        NULLIF((SELECT l.red FROM lideres l
+                WHERE l.hermano_id=v.invitado_por_id AND l.activo ORDER BY l.id DESC LIMIT 1), ''),
+        NULLIF((SELECT l.red FROM discipulado d JOIN lideres l ON l.id=d.lider_id
+                WHERE d.hermano_id=v.invitado_por_id AND d.fecha_fin IS NULL ORDER BY d.id DESC LIMIT 1), ''),
+        NULLIF((SELECT l.red FROM discipulado d JOIN lideres l ON l.id=d.lider_id
+                WHERE d.hermano_id=v.hermano_id AND d.fecha_fin IS NULL ORDER BY d.id DESC LIMIT 1), ''),
+        'SIN RED')"""
+
     # 5) Visitas recibidas — por red × estado (vacío hoy; se irá llenando)
-    g_vis = q(f"""SELECT
-        COALESCE(NULLIF((SELECT l.red FROM discipulado d JOIN lideres l ON l.id=d.lider_id
-            WHERE d.hermano_id=v.hermano_id AND d.fecha_fin IS NULL ORDER BY d.id DESC LIMIT 1), ''), 'SIN RED') AS red,
+    g_vis = q(f"""SELECT {_RED_VISITA} AS red,
         COALESCE(NULLIF(v.estado,''),'(SIN ESTADO)') AS estado, COUNT(*) AS c
+        FROM visitas v
+        WHERE COALESCE(v.fecha_visita, v.created_at::date) BETWEEN %s AND %s{fvv}
+        GROUP BY 1,2 ORDER BY 1,2""", p_fec + tuple(pvv))
+    # 6) Visitas NUEVAS en el rango — por red × mes (nuevos a la iglesia; vacío hoy)
+    g_vis_nuevas = q(f"""SELECT {_RED_VISITA} AS red,
+        to_char(COALESCE(v.fecha_visita, v.created_at::date),'YYYY-MM') AS mes,
+        COUNT(*) AS c
         FROM visitas v
         WHERE COALESCE(v.fecha_visita, v.created_at::date) BETWEEN %s AND %s{fvv}
         GROUP BY 1,2 ORDER BY 1,2""", p_fec + tuple(pvv))
@@ -2806,6 +2825,7 @@ def graficos():
         "informes_mes":       _dos(g_inf_mes, "mes"),
         "discipulos":         _grupo(g_disc, "red", "tipo", "c"),
         "visitas":            _grupo(g_vis, "red", "estado", "c"),
+        "visitas_nuevas":     _grupo(g_vis_nuevas, "red", "mes", "c"),
         "evolucion":          _grupo(g_asistencia, "mes", "red", "c"),   # líneas
         "informes_circular":  _circular_inf(g_inf_red),                  # circular
         "discipulos_anillo":  _anillo_tipos(g_disc),                     # anillo

@@ -1,9 +1,9 @@
 {% extends "base.html" %}{% block b %}<h2>Gráficos</h2>
 <details class="alert alert-info"><summary><b>Ayuda</b></summary><ul class="mb-0">
-<li><b>Rango:</b> Desde/Hasta recalcula los 8 gráficos (por defecto: últimos 3 meses completos).</li>
+<li><b>Rango:</b> Desde/Hasta recalcula los 9 gráficos (por defecto: últimos 3 meses completos).</li>
 <li><b>Mostrar valores:</b> la casilla superior enciende/apaga la cifra sobre cada barra y línea y dentro de los círculos (para verificar que los datos son correctos).</li>
 <li><b>Tipos:</b> barras = comparación · líneas = evolución mensual · circular = participación en informes · anillo = composición de discípulos.</li>
-<li><b>Visitas</b> está vacío hoy: el gráfico se irá llenando por red y estado a medida que se registren visitas.</li>
+<li><b>Visitas</b> (los 2 gráficos de visitas) está vacío hoy: se irán llenando poco a poco por red y mes / estado a medida que se registren visitas nuevas.</li>
 <li>Sin datos en el rango elegido → aparece "Sin datos en el período seleccionado".</li></ul></details>
 <form class="row g-2 mb-3 align-items-end" method="get">
 <div class="col-auto"><label class="col-form-label">Desde</label><input class="form-control" type="date" name="desde" value="{{desde}}"></div>
@@ -21,6 +21,7 @@
 <div class="col-12 mb-4"><div class="small fw-bold mb-1">Evolución mensual de la asistencia — líneas por red</div><canvas id="evolucion" height="150"></canvas></div>
 <div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Participación en informes del período — por red (circular)</div><canvas id="informes_circular" height="270"></canvas></div>
 <div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Composición de discípulos actuales — por tipo (anillo)</div><canvas id="discipulos_anillo" height="270"></canvas></div>
+<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Visitas nuevas a la iglesia — por red y mes (se irá llenando)</div><canvas id="visitas_nuevas" height="210"></canvas></div>
 <div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Visitas recibidas — por red y estado (se irá llenando)</div><canvas id="visitas" height="210"></canvas></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -82,7 +83,8 @@ function crear(id, tipo) {
       plugins: {legend: {position: 'bottom'}},
       scales: circular ? {} : {y: {beginAtZero: true, ticks: {precision: 0}}}}});
 }
-[['asistencia','bar'],['informes_red','bar'],['informes_mes','bar'],['discipulos','bar'],['visitas','bar'],
+[['asistencia','bar'],['informes_red','bar'],['informes_mes','bar'],['discipulos','bar'],
+ ['visitas_nuevas','bar'],['visitas','bar'],
  ['evolucion','line'],['informes_circular','pie'],['discipulos_anillo','doughnut']]
   .forEach(([id, t]) => crear(id, t));
 document.getElementById('chk_valores').addEventListener('change',
