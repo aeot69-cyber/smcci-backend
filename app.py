@@ -2161,7 +2161,8 @@ def celulas_informe_lista():
     exp = request.args.get("export", "")
     fi, pi = filtro_igl("ci")
     rows = q(f"""SELECT ci.*, h1.nombre_completo AS lider_nombre, h2.nombre_completo AS pastor_nombre,
-        i.nombre AS iglesia_nombre
+        i.nombre AS iglesia_nombre,
+        CASE WHEN ci.realizo THEN 'SI' ELSE 'NO' END AS realizado
         FROM celulas_informe ci 
         LEFT JOIN iglesias i ON i.id=ci.iglesia_id
         LEFT JOIN lideres l1 ON l1.id=ci.lider_id LEFT JOIN hermanos h1 ON h1.id=l1.hermano_id
@@ -2250,7 +2251,7 @@ def celulas_informe_update(cid):
     try:
         q("""UPDATE celulas_informe SET lider_id=NULLIF(%s,'')::int,pastor_id=NULLIF(%s,'')::int,
             fecha=NULLIF(%s,'')::date,mes=%s,red=%s,direccion=%s,comuna=%s,horario=%s,
-            realizado=%s,justificacion=%s,discipulos_asistieron=%s,discipulos_no_asistieron=%s,
+            realizo=%s,justificacion=%s,discipulos_asistieron=%s,discipulos_no_asistieron=%s,
             ofrenda=NULLIF(%s,'')::decimal,tipo_ofrenda=%s,modalidad=%s WHERE id=%s""",
           (f.get("lider_id"), f.get("pastor_id"), f.get("fecha"), f.get("mes"), f.get("red"),
            f.get("direccion"), f.get("comuna"), f.get("horario"),
