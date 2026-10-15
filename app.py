@@ -369,6 +369,8 @@ def inject_permisos():
             menu += f"<a href='{url_list}?export=excel' target='_blank'>📊 Excel</a>"
             menu += f"<a href='{url_list}?export=pdf' target='_blank'>📄 PDF</a>"
         menu += "</div>"
+        if key == "reportes":
+            menu += "<a href='/graficos'>📊 Gráficos</a>"
     # Iglesias: solo SUPERADMIN (configuracion global)
     iglesias_lst, vista_igl = [], "CASA MATRIZ"
     if session.get("uid"):
@@ -2560,7 +2562,6 @@ def reportes():
     fh, ph = filtro_igl("h")
     f0, p0 = filtro_igl()
     fvv, pvv = filtro_igl("v")
-    fci, pci = filtro_igl("ci")
     r["por_red"] = q(f"SELECT red AS red,estado_celula,COUNT(*) AS c FROM lideres WHERE activo{f0} GROUP BY 1,2 ORDER BY 1,2", tuple(p0))
     r["por_comuna"] = q(f"""SELECT r.nombre_corto AS region,c.nombre AS comuna,COUNT(*) AS c FROM hermanos h
         LEFT JOIN comunas c ON c.id=h.comuna_id LEFT JOIN regiones r ON r.id=c.region_id WHERE h.activo{fh} GROUP BY 1,2 ORDER BY 3 DESC LIMIT 30""", tuple(ph))
@@ -2701,8 +2702,18 @@ def reportes():
                 rows = [{h: "" for h in heads}]
             if exp == "excel": return to_excel(rows, heads, f"reporte_{ver}.xlsx")
             return to_pdf(title, rows, heads, f"reporte_{ver}.pdf")
-    # ---------- GRÁFICOS (sección validada — solo estos 5) ----------
+    return render_template("reportes.html", r=r, ver=ver)
+
+# ---------- GRÁFICOS (opción de menú: solo gráficos) ----------
+@app.get("/graficos")
+@login_req
+def graficos():
+    """8 gráficos validados: 5 de barras, 1 de líneas, 1 circular y 1 de anillo."""
     from datetime import timedelta
+    fh, ph = filtro_igl("h")
+    fvv, pvv = filtro_igl("v")
+    fci, pci = filtro_igl("ci")
+
     def _iso(s):
         try: return date.fromisoformat(s or "")
         except Exception: return None
@@ -2774,14 +2785,32 @@ def reportes():
             {"label": "Realizadas", "data": col("realizadas")},
             {"label": "No realizadas", "data": col("no_realizadas")}]}
 
+    def _circular_inf(rows):
+        """Circular: total de informes (realizadas+no) por red en el período."""
+        rows = sorted(rows, key=lambda x: str(x["red"]))
+        return {"labels": [str(x["red"]) for x in rows],
+                "datasets": [{"data": [int(x["realizadas"] or 0) + int(x["no_realizadas"] or 0)
+                                       for x in rows]}]}
+
+    def _anillo_tipos(rows):
+        """Anillo: composición actual de discípulos por tipo (total por tipo)."""
+        agg = {}
+        for x in rows:
+            agg[str(x["tipo"])] = agg.get(str(x["tipo"]), 0) + int(x["c"] or 0)
+        labels = sorted(agg, key=lambda k: -agg[k])
+        return {"labels": labels, "datasets": [{"data": [agg[k] for k in labels]}]}
+
     charts = {
-        "asistencia":   _grupo(g_asistencia, "red", "mes", "c"),
-        "informes_red": _dos(g_inf_red, "red"),
-        "informes_mes": _dos(g_inf_mes, "mes"),
-        "discipulos":   _grupo(g_disc, "red", "tipo", "c"),
-        "visitas":      _grupo(g_vis, "red", "estado", "c"),
+        "asistencia":         _grupo(g_asistencia, "red", "mes", "c"),
+        "informes_red":       _dos(g_inf_red, "red"),
+        "informes_mes":       _dos(g_inf_mes, "mes"),
+        "discipulos":         _grupo(g_disc, "red", "tipo", "c"),
+        "visitas":            _grupo(g_vis, "red", "estado", "c"),
+        "evolucion":          _grupo(g_asistencia, "mes", "red", "c"),   # líneas
+        "informes_circular":  _circular_inf(g_inf_red),                  # circular
+        "discipulos_anillo":  _anillo_tipos(g_disc),                     # anillo
     }
-    return render_template("reportes.html", r=r, ver=ver, graficos=charts,
+    return render_template("graficos.html", graficos=charts,
                            desde=desde.isoformat(), hasta=hasta.isoformat())
 
 # ---------- APIs (compatibilidad) ----------

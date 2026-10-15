@@ -1,0 +1,91 @@
+{% extends "base.html" %}{% block b %}<h2>Gráficos</h2>
+<details class="alert alert-info"><summary><b>Ayuda</b></summary><ul class="mb-0">
+<li><b>Rango:</b> Desde/Hasta recalcula los 8 gráficos (por defecto: últimos 3 meses completos).</li>
+<li><b>Mostrar valores:</b> la casilla superior enciende/apaga la cifra sobre cada barra y línea y dentro de los círculos (para verificar que los datos son correctos).</li>
+<li><b>Tipos:</b> barras = comparación · líneas = evolución mensual · circular = participación en informes · anillo = composición de discípulos.</li>
+<li><b>Visitas</b> está vacío hoy: el gráfico se irá llenando por red y estado a medida que se registren visitas.</li>
+<li>Sin datos en el rango elegido → aparece "Sin datos en el período seleccionado".</li></ul></details>
+<form class="row g-2 mb-3 align-items-end" method="get">
+<div class="col-auto"><label class="col-form-label">Desde</label><input class="form-control" type="date" name="desde" value="{{desde}}"></div>
+<div class="col-auto"><label class="col-form-label">Hasta</label><input class="form-control" type="date" name="hasta" value="{{hasta}}"></div>
+<div class="col-auto"><button class="btn btn-primary">Aplicar rango</button> <a class="btn btn-outline-secondary" href="/graficos">Limpiar</a></div>
+<div class="col-auto"><div class="form-check mb-2 ms-3">
+<input class="form-check-input" type="checkbox" id="chk_valores">
+<label class="form-check-label" for="chk_valores">Mostrar valores</label></div></div>
+</form>
+<div class="row">
+<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Discípulos que asistieron a célula — por red y mes</div><canvas id="asistencia" height="210"></canvas></div>
+<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Informes de célula por red — realizadas vs no</div><canvas id="informes_red" height="210"></canvas></div>
+<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Informes de célula por mes — realizadas vs no</div><canvas id="informes_mes" height="210"></canvas></div>
+<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Discípulos actuales — por red y tipo</div><canvas id="discipulos" height="210"></canvas></div>
+<div class="col-12 mb-4"><div class="small fw-bold mb-1">Evolución mensual de la asistencia — líneas por red</div><canvas id="evolucion" height="150"></canvas></div>
+<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Participación en informes del período — por red (circular)</div><canvas id="informes_circular" height="270"></canvas></div>
+<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Composición de discípulos actuales — por tipo (anillo)</div><canvas id="discipulos_anillo" height="270"></canvas></div>
+<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Visitas recibidas — por red y estado (se irá llenando)</div><canvas id="visitas" height="210"></canvas></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const G = {{ graficos|tojson }};
+const PALETA = ['#0d6efd','#198754','#dc3545','#ffc107','#6f42c1','#fd7e14','#20c997','#6c757d'];
+const CHARTS = {};
+// Cifras opcionales (casilla "Mostrar valores")
+const pluginValores = {
+  id: 'valores',
+  afterDatasetsDraw(chart) {
+    if (!document.getElementById('chk_valores').checked) return;
+    const esCircular = chart.config.type === 'pie' || chart.config.type === 'doughnut';
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.font = 'bold 11px system-ui, sans-serif';
+    chart.data.datasets.forEach((ds, i) => {
+      if (!chart.isDatasetVisible(i)) return;
+      const meta = chart.getDatasetMeta(i);
+      if (esCircular) {
+        const total = ds.data.reduce((a, b) => a + (Number(b) || 0), 0) || 1;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        meta.data.forEach((el, j) => {
+          const v = Number(ds.data[j]) || 0;
+          if (!v) return;
+          const ang = (el.startAngle + el.endAngle) / 2;
+          const rad = (el.innerRadius + el.outerRadius) / 2;
+          ctx.fillStyle = '#fff';
+          ctx.fillText(v + ' (' + Math.round(v / total * 100) + '%)',
+            el.x + Math.cos(ang) * rad, el.y + Math.sin(ang) * rad);
+        });
+      } else {
+        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = '#212529';
+        meta.data.forEach((el, j) => {
+          const v = ds.data[j];
+          if (v === null || v === undefined) return;
+          const p = el.tooltipPosition();
+          ctx.fillText(String(v), p.x, p.y - 5);
+        });
+      }
+    });
+    ctx.restore();
+  }
+};
+Chart.register(pluginValores);
+function crear(id, tipo) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const d = G[id];
+  if (!d || !d.labels.length) { el.outerHTML = '<p class="text-muted small mb-0">Sin datos en el período seleccionado.</p>'; return; }
+  const circular = tipo === 'pie' || tipo === 'doughnut';
+  CHARTS[id] = new Chart(el, {type: tipo,
+    data: {labels: d.labels, datasets: d.datasets.map((s, i) => circular
+      ? {label: s.label, data: s.data, backgroundColor: PALETA, borderColor: '#ffffff', borderWidth: 2}
+      : {label: s.label, data: s.data, backgroundColor: PALETA[i % PALETA.length],
+         borderColor: PALETA[i % PALETA.length], borderWidth: tipo === 'line' ? 2 : 0,
+         fill: false, tension: 0.25, pointRadius: 4})},
+    options: {responsive: true, layout: {padding: {top: 16}},
+      plugins: {legend: {position: 'bottom'}},
+      scales: circular ? {} : {y: {beginAtZero: true, ticks: {precision: 0}}}}});
+}
+[['asistencia','bar'],['informes_red','bar'],['informes_mes','bar'],['discipulos','bar'],['visitas','bar'],
+ ['evolucion','line'],['informes_circular','pie'],['discipulos_anillo','doughnut']]
+  .forEach(([id, t]) => crear(id, t));
+document.getElementById('chk_valores').addEventListener('change',
+  () => Object.values(CHARTS).forEach(c => c.update()));
+</script>
+{% endblock %}

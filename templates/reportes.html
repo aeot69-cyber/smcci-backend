@@ -1,7 +1,6 @@
 {% extends "base.html" %}{% block b %}<h2>Reportes y consultas</h2>
 <details class="alert alert-info"><summary><b>Ayuda</b></summary><ul class="mb-0">
 <li><b>Ver:</b> elige TODOS o uno separado. <b>Excel/PDF del elegido</b> exporta solo ese.</li>
-<li><b>Gráficos:</b> los 5 gráficos de arriba son los validados (asistencia, informes por red/mes, discípulos, visitas). Cambia el rango con <b>Desde/Hasta</b>; las tablas de abajo siguen igual.</li>
 <li><b>Resumen por Lider:</b> una fila por lider con Celulas hijas + Macrocélulas + Total discipulos + encuentros aprobados por etapa + fila TOTAL.</li>
 <li><b>Total discipulos:</b> discipulos activos del lider · <b>Celulas hijas:</b> sub-lideres bajo su mando (jerarquia padre->hijo) · <b>Macro:</b> macrocélulas a cargo (se carga en Lideres).</li>
 <li><b>Enc.Lider:</b> aprobados del propio lider · <b>Tremendo/Fruto/Reenc/Crec/Lid:</b> discipulos activos con esa etapa aprobada.</li></ul></details>
@@ -22,38 +21,6 @@
 <option value="ruta_incompleta" {% if ver=='ruta_incompleta' %}selected{% endif %}>Ruta incompleta</option>
 </select></div>
 <div class="col-auto"><a class="btn btn-success btn-sm" href="/reportes?ver={{ver}}&export=excel" target="_blank">Excel del elegido</a> <a class="btn btn-danger btn-sm" href="/reportes?ver={{ver}}&export=pdf" target="_blank">PDF del elegido</a></div></form>
-<div class="card p-3 mb-3">
-<h5>Gráficos <span class="badge bg-primary">validados</span></h5>
-<form class="row g-2 mb-3" method="get">
-<input type="hidden" name="ver" value="{{ver}}">
-<div class="col-auto"><label class="col-form-label">Desde</label><input class="form-control" type="date" name="desde" value="{{desde}}"></div>
-<div class="col-auto"><label class="col-form-label">Hasta</label><input class="form-control" type="date" name="hasta" value="{{hasta}}"></div>
-<div class="col-auto"><button class="btn btn-primary mt-4">Aplicar rango</button> <a class="btn btn-outline-secondary mt-4" href="/reportes?ver={{ver}}">Limpiar</a></div>
-</form>
-<div class="row">
-<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Discípulos que asistieron a célula — por red y mes</div><canvas id="asistencia" height="210"></canvas></div>
-<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Informes de célula por red — realizadas vs no</div><canvas id="informes_red" height="210"></canvas></div>
-<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Informes de célula por mes — realizadas vs no</div><canvas id="informes_mes" height="210"></canvas></div>
-<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Discípulos actuales — por red y tipo</div><canvas id="discipulos" height="210"></canvas></div>
-<div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Visitas recibidas — por red y estado (se irá llenando)</div><canvas id="visitas" height="210"></canvas></div>
-</div>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script>
-const G = {{ graficos|tojson }};
-const PALETA = ['#0d6efd','#198754','#dc3545','#ffc107','#6f42c1','#fd7e14','#20c997','#6c757d'];
-function crear(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const d = G[id];
-  if (!d || !d.labels.length) { el.outerHTML = '<p class="text-muted small mb-0">Sin datos en el período seleccionado.</p>'; return; }
-  new Chart(el, {type: 'bar',
-    data: {labels: d.labels, datasets: d.datasets.map((s, i) => ({label: s.label, data: s.data, backgroundColor: PALETA[i % PALETA.length]}))},
-    options: {responsive: true, plugins: {legend: {position: 'bottom'}},
-      scales: {y: {beginAtZero: true, ticks: {precision: 0}}}}});
-}
-['asistencia','informes_red','informes_mes','discipulos','visitas'].forEach(crear);
-</script>
 {% if ver in ['todos','resumen'] %}<div class="card p-3 mb-3"><h5>Resumen por Lider — {{r.total.lideres}} lideres / {{r.total.activos}} activos</h5>
 <div style="overflow-x:auto"><table class="table table-striped"><tr><th>Lider</th><th>Red</th><th>12</th><th title="Sub-lideres bajo su mando (jerarquia)">Cel. hijas</th><th title="Macrocélulas a cargo (campo cargado en Lideres)">Macro</th><th title="Discipulos activos del lider">Total discipulos</th><th>Enc.Lider</th><th>Tremendo</th><th>Fruto</th><th>Reenc.</th><th>Crec.</th><th>Lid.</th></tr>
 {% for x in r.resumen %}<tr><td>{{x.lider}}</td><td>{{x.red}}</td><td>{{x.tipo_12}}</td><td>{{x.celulas_hijas}}</td><td>{{x.cantidad_macrocelulas}}</td><td><b>{{x.discipulos_activos}}</b></td><td>{{x.enc_lider}}</td><td>{{x.d_tremendo}}</td><td>{{x.d_fruto}}</td><td>{{x.d_reenc}}</td><td>{{x.d_crec}}</td><td>{{x.d_lid}}</td></tr>{% endfor %}
