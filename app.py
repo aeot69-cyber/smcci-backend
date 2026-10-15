@@ -2211,6 +2211,10 @@ def celulas_informe_crear():
         flash("Ese lider no es de tu iglesia", "error"); return redirect(url_for("celulas_informe_lista"))
     if pid and not exigir_igl("lideres", pid):
         flash("Ese pastor no es de tu iglesia", "error"); return redirect(url_for("celulas_informe_lista"))
+    # Guardia: un POST sin los datos basicos no debe registrar un informe vacio
+    if not lid or not f.get("fecha") or not f.get("mes") or not f.get("red"):
+        flash("No se registro: faltan datos obligatorios (lider, fecha, mes, red)", "error")
+        return redirect(url_for("celulas_informe_nuevo"))
     cigl = iglesia_de("lideres", lid) if lid else (session.get("iglesia_id") or 1)
     try:
         q("""INSERT INTO celulas_informe(lider_id,pastor_id,fecha,mes,red,direccion,comuna,
@@ -2250,6 +2254,10 @@ def celulas_informe_update(cid):
     f = request.form
     if not exigir_igl("celulas_informe", cid):
         flash("Ese informe no es de tu iglesia", "error"); return redirect(url_for("celulas_informe_lista"))
+    # Guardia: un POST sin los datos basicos (p.ej. sin formulario real) NO debe vaciar el informe
+    if not f.get("lider_id") or not f.get("fecha") or not f.get("mes") or not f.get("red"):
+        flash("No se guardo: faltan datos obligatorios (lider, fecha, mes, red)", "error")
+        return redirect(url_for("celulas_informe_editar", cid=cid))
     try:
         q("""UPDATE celulas_informe SET lider_id=NULLIF(%s,'')::int,pastor_id=NULLIF(%s,'')::int,
             fecha=NULLIF(%s,'')::date,mes=%s,red=%s,direccion=%s,comuna=%s,horario=%s,
