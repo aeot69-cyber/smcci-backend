@@ -4,13 +4,14 @@
 <li><b>Resumen por Lider:</b> una fila por lider con Celulas hijas + Macrocélulas + Total discipulos + encuentros aprobados por etapa + fila TOTAL.</li>
 <li><b>Total discipulos:</b> discipulos activos del lider · <b>Celulas hijas:</b> sub-lideres bajo su mando (jerarquia padre->hijo) · <b>Macro:</b> macrocélulas a cargo (se carga en Lideres).</li>
 <li><b>Enc.Lider:</b> aprobados del propio lider · <b>Tremendo/Fruto/Reenc/Crec/Lid:</b> discipulos activos con esa etapa aprobada.</li></ul></details>
-<form class="row g-2 mb-3" method="get"><div class="col-md-4"><select class="form-select" name="ver" onchange="this.form.submit()" title="Elige ver todos o uno separado">
+<form class="row g-2 mb-3" method="get"><input type="hidden" name="lider" value="{{lider_sel or ''}}"><div class="col-md-4"><select class="form-select" name="ver" onchange="this.form.submit()" title="Elige ver todos o uno separado">
 <option value="todos" {% if ver=='todos' %}selected{% endif %}>Ver TODOS</option>
 <option value="resumen" {% if ver=='resumen' %}selected{% endif %}>Resumen por Lider (unico + total)</option>
 <optgroup label="--- Informes de Celula ---">
 <option value="celulas_resumen" {% if ver=='celulas_resumen' %}selected{% endif %}>Informe Celula - Por Lider</option>
 <option value="celulas_por_pastor" {% if ver=='celulas_por_pastor' %}selected{% endif %}>Informe Celula - Por Pastor</option>
 <option value="celulas_por_red" {% if ver=='celulas_por_red' %}selected{% endif %}>Informe Celula - Por Red</option>
+<option value="lider_detalle" {% if ver=='lider_detalle' %}selected{% endif %}>Informe Celula - Detalle de UN Lider</option>
 </optgroup>
 <option value="por_12" {% if ver=='por_12' %}selected{% endif %}>Por Tipo 12</option>
 <option value="por_red" {% if ver=='por_red' %}selected{% endif %}>Por red / celula</option>
@@ -20,7 +21,24 @@
 <option value="periodicidad" {% if ver=='periodicidad' %}selected{% endif %}>Periodicidad</option>
 <option value="ruta_incompleta" {% if ver=='ruta_incompleta' %}selected{% endif %}>Ruta incompleta</option>
 </select></div>
-<div class="col-auto"><a class="btn btn-success btn-sm" href="/reportes?ver={{ver}}&export=excel" target="_blank">Excel del elegido</a> <a class="btn btn-danger btn-sm" href="/reportes?ver={{ver}}&export=pdf" target="_blank">PDF del elegido</a></div></form>
+<div class="col-auto"><a class="btn btn-success btn-sm" href="/reportes?ver={{ver}}&lider={{lider_sel or ''}}&export=excel" target="_blank">Excel del elegido</a> <a class="btn btn-danger btn-sm" href="/reportes?ver={{ver}}&lider={{lider_sel or ''}}&export=pdf" target="_blank">PDF del elegido</a></div></form>
+
+<div class="card p-3 mb-3 border-primary">
+<div class="row g-2 align-items-end">
+<div class="col-md-6">
+<label class="form-label mb-1"><b>📋 Ver informes de UN líder</b><br><small class="text-muted">Elige un líder para ver todos sus informes de célula (asistencia, ofrenda, justificación).</small></label>
+<form method="get" class="d-flex gap-2">
+<input type="hidden" name="ver" value="lider_detalle">
+<select class="form-select" name="lider" onchange="this.form.submit()">
+<option value="">— Seleccionar líder —</option>
+{% for l in r['_lideres_opts'] %}<option value="{{l.id}}" {% if lider_sel==l.id %}selected{% endif %}>{{l.nombre_completo}} ({{l.red}})</option>{% endfor %}
+</select>
+<button class="btn btn-primary" type="submit">Ver informes</button>
+</form>
+</div>
+</div>
+</div>
+
 {% if ver in ['todos','resumen'] %}<div class="card p-3 mb-3"><h5>Resumen por Lider — {{r.total.lideres}} lideres / {{r.total.activos}} activos</h5>
 <div style="overflow-x:auto"><table class="table table-striped"><tr><th>Lider</th><th>Red</th><th>12</th><th title="Sub-lideres bajo su mando (jerarquia)">Cel. hijas</th><th title="Macrocélulas a cargo (campo cargado en Lideres)">Macro</th><th title="Discipulos activos del lider">Total discipulos</th><th>Enc.Lider</th><th>Tremendo</th><th>Fruto</th><th>Reenc.</th><th>Crec.</th><th>Lid.</th></tr>
 {% for x in r.resumen %}<tr><td>{{x.lider}}</td><td>{{x.red}}</td><td>{{x.tipo_12}}</td><td>{{x.celulas_hijas}}</td><td>{{x.cantidad_macrocelulas}}</td><td><b>{{x.discipulos_activos}}</b></td><td>{{x.enc_lider}}</td><td>{{x.d_tremendo}}</td><td>{{x.d_fruto}}</td><td>{{x.d_reenc}}</td><td>{{x.d_crec}}</td><td>{{x.d_lid}}</td></tr>{% endfor %}
@@ -36,4 +54,31 @@
 {% if ver in ['todos','celulas_resumen'] %}<div class="card p-3 mb-3"><h5>Informe Celula - Por Lider</h5><div style="overflow-x:auto"><table class="table table-striped"><tr><th>Lider</th><th>Red</th><th>Pastor</th><th>Total Informes</th><th>Realizadas</th><th>No Realizadas</th><th>Total Ofrenda</th><th>Ultima Fecha</th></tr>{% for x in r.celulas_resumen %}<tr><td>{{x.lider}}</td><td>{{x.red}}</td><td>{{x.pastor}}</td><td>{{x.total_informes}}</td><td>{{x.realizadas}}</td><td>{{x.no_realizadas}}</td><td>${{x.total_ofrenda|int}}</td><td>{{x.ultima_fecha if x.ultima_fecha else '-'}}</td></tr>{% else %}<tr><td colspan=8>Sin datos</td></tr>{% endfor %}</table></div></div>{% endif %}
 {% if ver in ['todos','celulas_por_pastor'] %}<div class="card p-3 mb-3"><h5>Informe Celula - Por Pastor</h5><table class="table"><tr><th>Pastor</th><th>Red</th><th>Total Lideres</th><th>Total Informes</th><th>Realizadas</th><th>No Realizadas</th><th>Total Ofrenda</th></tr>{% for x in r.celulas_por_pastor %}<tr><td>{{x.pastor}}</td><td>{{x.red_pastor}}</td><td>{{x.total_lideres}}</td><td>{{x.total_informes}}</td><td>{{x.realizadas}}</td><td>{{x.no_realizadas}}</td><td>${{x.total_ofrenda|int}}</td></tr>{% else %}<tr><td colspan=7>Sin datos</td></tr>{% endfor %}</table></div>{% endif %}
 {% if ver in ['todos','celulas_por_red'] %}<div class="card p-3 mb-3"><h5>Informe Celula - Por Red</h5><table class="table"><tr><th>Red</th><th>Total Lideres</th><th>Total Informes</th><th>Realizadas</th><th>No Realizadas</th><th>Total Ofrenda</th></tr>{% for x in r.celulas_por_red %}<tr><td>{{x.red}}</td><td>{{x.total_lideres}}</td><td>{{x.total_informes}}</td><td>{{x.realizadas}}</td><td>{{x.no_realizadas}}</td><td>${{x.total_ofrenda|int}}</td></tr>{% else %}<tr><td colspan=6>Sin datos</td></tr>{% endfor %}</table></div>{% endif %}
+{% if ver == 'lider_detalle' %}<div class="card p-3 mb-3">
+{% if r.lider_info %}
+<h5>📋 Informes de <b>{{r.lider_info.nombre_completo}}</b> — Red {{r.lider_info.red}} · Pastor {{r.lider_info.pastor}}</h5>
+<p class="text-muted mb-2">Total de informes: <b>{{r.lider_detalle|length}}</b></p>
+{% if r.lider_detalle %}
+<div style="overflow-x:auto"><table class="table table-striped table-sm">
+<tr><th>Fecha</th><th>Mes</th><th>Realizó</th><th>Discípulos que asistieron</th><th>No asistieron</th><th>Justificación</th><th>Ofrenda</th><th>Tipo</th><th>Modalidad</th><th>Registrado</th></tr>
+{% for x in r.lider_detalle %}<tr>
+<td class="text-nowrap">{{x.fecha}}</td>
+<td>{{x.mes}}</td>
+<td>{% if x.realizo %}<span class="badge bg-success">SÍ</span>{% else %}<span class="badge bg-danger">NO</span>{% endif %}</td>
+<td class="small">{{x.discipulos_asistieron or '—'}}</td>
+<td class="small">{{x.discipulos_no_asistieron or '—'}}</td>
+<td class="small">{{x.justificacion or '—'}}</td>
+<td>${{ (x.ofrenda or 0)|int }}</td>
+<td>{{x.tipo_ofrenda or '—'}}</td>
+<td>{{x.modalidad or '—'}}</td>
+<td class="small text-nowrap text-muted">{{x.created_at.strftime('%d-%m-%Y %H:%M') if x.created_at else '—'}}</td>
+</tr>{% endfor %}
+</table></div>
+{% else %}
+<div class="alert alert-warning mb-0">Este líder aún no tiene informes registrados.</div>
+{% endif %}
+{% else %}
+<div class="alert alert-info mb-0">Selecciona un líder en <b>📋 Ver informes de UN líder</b> para ver sus informes de célula.</div>
+{% endif %}
+</div>{% endif %}
 {% endblock %}

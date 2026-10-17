@@ -2597,6 +2597,7 @@ def informe_salir():
 def reportes():
     exp = request.args.get("export", "")
     ver = request.args.get("ver", "todos")
+    lider_sel = request.args.get("lider", type=int)
     r = {}
     # Filtros por iglesia en sesion (SUPERADMIN en TODAS -> vacios)
     fl, pl = filtro_igl("l")
@@ -2712,6 +2713,25 @@ def reportes():
         WHERE d.fecha_fin IS NULL AND d.es_discipulo_activo{fl}""", tuple(pl), one=True)
     r["total_enc"] = te
     r["padre-discipulos"] = q(f"SELECT lider, tipo_12, n_hijos, discipulos_activos FROM v_lideres_padre_con_discipulos WHERE n_hijos > 0 AND discipulos_activos > 0{f0} ORDER BY n_hijos DESC, discipulos_activos DESC LIMIT 50", tuple(p0))
+    # Informes de UN líder específico (drill-down: ver todos los informes de un líder)
+    r["_lideres_opts"] = q(f"""SELECT l.id, h.nombre_completo, l.red FROM lideres l
+        JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo{fl}
+        ORDER BY h.nombre_completo""", tuple(pl))
+    r["lider_info"] = None
+    r["lider_detalle"] = []
+    if ver == "lider_detalle" and lider_sel:
+        r["lider_info"] = q(f"""SELECT l.id, h.nombre_completo, l.red, l.estado_celula,
+            COALESCE(hp.nombre_completo,'SIN PASTOR') AS pastor
+            FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
+            LEFT JOIN lideres lp ON lp.id=l.lider_padre_id
+            LEFT JOIN hermanos hp ON hp.id=lp.hermano_id
+            WHERE l.id=%s{fl}""", tuple([lider_sel]) + tuple(pl), one=True)
+        if r["lider_info"]:
+            r["lider_detalle"] = q("""SELECT ci.fecha, ci.mes, ci.red, ci.realizo, ci.justificacion,
+                ci.discipulos_asistieron, ci.discipulos_no_asistieron, ci.ofrenda,
+                ci.tipo_ofrenda, ci.modalidad, ci.created_at
+                FROM celulas_informe ci WHERE ci.lider_id=%s
+                ORDER BY ci.fecha DESC NULLS LAST, ci.created_at DESC""", (lider_sel,))
     catalog = {"por_red": ("Reporte por red", ["red", "estado_celula", "c"]), "por_comuna": ("Reporte por comuna", ["region", "comuna", "c"]),
         "sin_celula": ("Sin celula", ["nombre_completo", "red"]), "pendientes": ("Pendientes", ["nombre_completo", "etapa", "fecha"]),
         "ruta_incompleta": ("Ruta incompleta", ["nombre_completo"]), "periodicidad": ("Periodicidad", ["nombre", "c"]),
@@ -2721,7 +2741,8 @@ def reportes():
         # NUEVOS: Informes de Célula
         "celulas_resumen": ("Informe Célula · Por Líder", ["lider", "red", "pastor", "total_informes", "realizadas", "no_realizadas", "total_ofrenda", "ultima_fecha"]),
         "celulas_por_pastor": ("Informe Célula · Por Pastor", ["pastor", "red_pastor", "total_lideres", "total_informes", "realizadas", "no_realizadas", "total_ofrenda"]),
-        "celulas_por_red": ("Informe Célula · Por Red", ["red", "total_lideres", "total_informes", "realizadas", "no_realizadas", "total_ofrenda"])}
+        "celulas_por_red": ("Informe Célula · Por Red", ["red", "total_lideres", "total_informes", "realizadas", "no_realizadas", "total_ofrenda"]),
+        "lider_detalle": ("Informe Célula · Detalle de un líder", ["fecha", "mes", "realizo", "discipulos_asistieron", "discipulos_no_asistieron", "justificacion", "ofrenda", "tipo_ofrenda", "modalidad"])}
     if exp in ("excel", "pdf"):
         if ver == "todos":
             all_rows = []
@@ -2743,7 +2764,7 @@ def reportes():
                 rows = [{h: "" for h in heads}]
             if exp == "excel": return to_excel(rows, heads, f"reporte_{ver}.xlsx")
             return to_pdf(title, rows, heads, f"reporte_{ver}.pdf")
-    return render_template("reportes.html", r=r, ver=ver)
+    return render_template("reportes.html", r=r, ver=ver, lider_sel=lider_sel)
 
 # ---------- GRÁFICOS (opción de menú: solo gráficos) ----------
 @app.get("/graficos")
