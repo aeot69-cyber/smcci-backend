@@ -2336,13 +2336,32 @@ def semana_actual():
     semana = (dias_desde_inicio // 7) + 1
     return f"Semana {semana} de {MESES_ES[hoy.month]}"
 
+# Caducidad de la sesión del informe exprés: 30 minutos (ventana deslizante:
+# cada envío/formulario activo reinicia el contador; si pasan 30 min sin activity, caduca).
+INFORME_SESION_SEG = 30 * 60
+
+def _limpiar_sesion_informe():
+    """Borra todas las claves de sesión del informe exprés."""
+    for k in ("informe_lider_id", "informe_lider_nombre",
+              "informe_iglesia_id", "informe_iglesia_nombre", "informe_expira"):
+        session.pop(k, None)
+
 @app.get("/informe")
 def informe_express():
-    """Paso 1: pide código de líder; si ya hay sesión, muestra formulario."""
-    # Si ya tiene sesión de informe, salta al formulario
+    """Paso 1: pide código de líder; si ya hay sesión (y no caducó), muestra formulario."""
     if session.get("informe_lider_id"):
-        return _mostrar_formulario_informe()
-    # Si no, muestra la pantalla de código
+        exp = session.get("informe_expira")
+        if exp is None or time.time() > float(exp):
+            # Sesión caducada (30 min de inactividad): se bloquea y se avisa.
+            _limpiar_sesion_informe()
+            flash("Tu sesión expiró a los 30 minutos. Ingresa tu código de líder nuevamente para continuar.", "error")
+        else:
+            session["informe_expira"] = time.time() + INFORME_SESION_SEG  # ventana deslizante
+            if request.args.get("enviado"):
+                return render_template("informe_enviado.html",
+                                       nombre=session.get("informe_lider_nombre"))
+            return _mostrar_formulario_informe()
+    # Sin sesión vigente: muestra la pantalla de código
     pregunta = nuevo_captcha("captcha_informe")
     return render_template("informe_express.html",
                            lider=None,
@@ -2403,7 +2422,7 @@ def informe_codigo():
     session["informe_lider_nombre"] = lider["nombre_completo"]
     session["informe_iglesia_id"] = lider["iglesia_id"] or 1
     session["informe_iglesia_nombre"] = lider["iglesia_nombre"] or "CASA MATRIZ"
-    session.permanent = True
+    session["informe_expira"] = time.time() + INFORME_SESION_SEG   # caduca a los 30 min (deslizante)
     registrar_intento(codigo, ip, True, "codigo_ok")
     return redirect(url_for("informe_express"))
 
@@ -2470,16 +2489,13 @@ def _mostrar_formulario_informe():
         flash("Sesión expirada. Ingrese su código nuevamente.", "error")
         return redirect(url_for("informe_express"))
 
-    # Último informe del líder (para precargar datos en el formulario)
-    existente = q("""SELECT * FROM celulas_informe
-                     WHERE lider_id=%s
-                     ORDER BY created_at DESC LIMIT 1""", (lid,), one=True)
-
+    # Formulario SIEMPRE en blanco: no se pre-carga el último informe, así
+    # después de enviar uno el siguiente sale limpio para rellenar.
     pregunta = nuevo_captcha("captcha_informe2")
     hoy = date.today()
     return render_template("informe_express.html",
                            lider=lider,
-                           existente=existente,
+                           existente=None,
                            captcha_pregunta2=pregunta,
                            turnstile_sitekey=turnstile_sitekey_visible(),
                            fecha_hoy=hoy.isoformat(),
@@ -2493,6 +2509,12 @@ def informe_guardar():
     lid = session.get("informe_lider_id")
     if not lid:
         flash("Sesión expirada. Ingrese su código nuevamente.", "error")
+        return redirect(url_for("informe_express"))
+    # Caducidad (30 min): si pasó, se bloquea el envío.
+    exp = session.get("informe_expira")
+    if exp is None or time.time() > float(exp):
+        _limpiar_sesion_informe()
+        flash("Tu sesión expiró a los 30 minutos. Ingresa tu código de líder nuevamente.", "error")
         return redirect(url_for("informe_express"))
 
     ip = ip_cliente()
@@ -2571,8 +2593,10 @@ def informe_guardar():
                  realizo, justificacion, f.get("asistieron"), f.get("no_asistieron"),
                  f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
                  ldata["iglesia_id"] or 1), commit=True)
-        flash("✅ Informe registrado. ¡Bendiciones!", "ok")
         log_audit("INFORME_EXPRESS", "celulas", f"lider={lid} realizo={realizo} ip={ip}")
+        session["informe_expira"] = time.time() + INFORME_SESION_SEG  # refresca ventana tras enviar
+        # Éxito: pantalla de confirmación con botón "Enviar otro informe".
+        return redirect(url_for("informe_express", enviado=1))
     except Exception as e:
         flash(f"Error al guardar: {e}", "error")
         print(f"informe_guardar error: {e}")
@@ -2584,10 +2608,7 @@ def informe_guardar():
 @app.get("/informe/salir")
 def informe_salir():
     """Limpia la sesión del informe express."""
-    session.pop("informe_lider_id", None)
-    session.pop("informe_lider_nombre", None)
-    session.pop("informe_iglesia_id", None)
-    session.pop("informe_iglesia_nombre", None)
+    _limpiar_sesion_informe()
     flash("Sesión cerrada.", "ok")
     return redirect(url_for("informe_express"))
 
