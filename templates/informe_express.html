@@ -54,6 +54,20 @@
       <input type="hidden" name="sitio" class="campo-trampa" tabindex="-1" autocomplete="off">
       <input type="hidden" name="lider_id" value="{{ lider.id }}">
 
+      {# ========= TIMOTEO (sub-líder / discípulo a cargo) ========= #}
+      <div class="mb-3">
+        <label class="form-label fw-bold">¿Para quién es este informe? (timoteo)</label>
+        <select class="form-select" name="timoteo">
+          <option value="" selected>No tengo timoteo (mi propia célula)</option>
+          {% for t in timoteos %}<option value="{{ t.id }}">{{ t.nombre_completo }}</option>{% endfor %}
+        </select>
+        <div class="form-text">
+          Elige tu timoteo (discípulo o sub-líder a cargo) si el informe es de la célula de él; si no tienes, deja <b>"No tengo timoteo"</b>.
+          {% if timoteos %}Tienes {{ timoteos|length }} a tu cargo.{% else %}Aún no tienes timoteos registrados a tu cargo.{% endif %}
+          <br><b>Puedes enviar hasta 3 informes por semana.</b> Con timoteo, usa uno distinto por informe; sin timoteo, elige una <b>fecha distinta</b> para cada uno. Para corregir, repite la <b>misma fecha y el mismo timoteo</b>. Esta semana llevas <b>{{ informes_semana }} de 3</b>.
+        </div>
+      </div>
+
       <div class="mb-3">
         <label class="form-label fw-bold">Fecha de la célula *</label>
         <input class="form-control" type="date" name="fecha" value="{{ fecha_hoy }}" required max="{{ fecha_hoy }}">

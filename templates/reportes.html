@@ -60,10 +60,11 @@
 <p class="text-muted mb-2">Total de informes: <b>{{r.lider_detalle|length}}</b></p>
 {% if r.lider_detalle %}
 <div style="overflow-x:auto"><table class="table table-striped table-sm">
-<tr><th>Fecha</th><th>Mes</th><th>Realizó</th><th>Discípulos que asistieron</th><th>No asistieron</th><th>Justificación</th><th>Ofrenda</th><th>Tipo</th><th>Modalidad</th><th>Registrado</th></tr>
+<tr><th>Fecha</th><th>Mes</th><th>Timoteo</th><th>Realizó</th><th>Discípulos que asistieron</th><th>No asistieron</th><th>Justificación</th><th>Ofrenda</th><th>Tipo</th><th>Modalidad</th><th>Registrado</th></tr>
 {% for x in r.lider_detalle %}<tr>
 <td class="text-nowrap">{{x.fecha}}</td>
 <td>{{x.mes}}</td>
+<td class="small">{{x.timoteo or '—'}}</td>
 <td>{% if x.realizo %}<span class="badge bg-success">SÍ</span>{% else %}<span class="badge bg-danger">NO</span>{% endif %}</td>
 <td class="small">{{x.discipulos_asistieron or '—'}}</td>
 <td class="small">{{x.discipulos_no_asistieron or '—'}}</td>

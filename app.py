@@ -2340,6 +2340,18 @@ def semana_actual():
 # cada envío/formulario activo reinicia el contador; si pasan 30 min sin activity, caduca).
 INFORME_SESION_SEG = 30 * 60
 
+# Timoteos disponibles para un líder: discípulos activos (discipulado) + sub-líderes.
+# UNION (no ALL) evita duplicados si alguien es ambas cosas. Devuelve id (hermanos.id) y nombre.
+_SQL_TIMOTEOS = """SELECT * FROM (
+    SELECT h.id, h.nombre_completo FROM discipulado d
+      JOIN hermanos h ON h.id=d.hermano_id
+      WHERE d.lider_id=%s AND d.fecha_fin IS NULL AND d.es_discipulo_activo
+    UNION
+    SELECT h.id, h.nombre_completo FROM lideres l2
+      JOIN hermanos h ON h.id=l2.hermano_id
+      WHERE l2.lider_padre_id=%s AND l2.activo
+) t ORDER BY nombre_completo"""
+
 def _limpiar_sesion_informe():
     """Borra todas las claves de sesión del informe exprés."""
     for k in ("informe_lider_id", "informe_lider_nombre",
@@ -2489,13 +2501,25 @@ def _mostrar_formulario_informe():
         flash("Sesión expirada. Ingrese su código nuevamente.", "error")
         return redirect(url_for("informe_express"))
 
+    # Timoteos disponibles (discípulos activos + sub-líderes) y cuántos informes
+    # se han enviado esta semana (para mostrar "N de 3").
+    timoteos = q(_SQL_TIMOTEOS, (lid, lid))
+    hoy = date.today()
+    anio_hoy, sem_hoy, _ = hoy.isocalendar()
+    n_sem = q("""SELECT COUNT(*) AS c FROM celulas_informe
+                 WHERE lider_id=%s
+                   AND EXTRACT(YEAR FROM fecha)::int=%s
+                   AND EXTRACT(WEEK FROM fecha)::int=%s""",
+              (lid, anio_hoy, sem_hoy), one=True)["c"]
+
     # Formulario SIEMPRE en blanco: no se pre-carga el último informe, así
     # después de enviar uno el siguiente sale limpio para rellenar.
     pregunta = nuevo_captcha("captcha_informe2")
-    hoy = date.today()
     return render_template("informe_express.html",
                            lider=lider,
                            existente=None,
+                           timoteos=timoteos,
+                           informes_semana=n_sem or 0,
                            captcha_pregunta2=pregunta,
                            turnstile_sitekey=turnstile_sitekey_visible(),
                            fecha_hoy=hoy.isoformat(),
@@ -2549,13 +2573,41 @@ def informe_guardar():
     mes_sel = MESES_ES[fecha_sel.month]
     anio_iso, semana_iso, _ = fecha_sel.isocalendar()
 
-    # ¿Ya existe informe en esa semana ISO? → UPDATE, sino INSERT
+    # --- Timoteo (sub-líder / discípulo a cargo) de este informe ---
+    timoteo_id = None
+    t_raw = (f.get("timoteo") or "").strip()
+    if t_raw:
+        try:
+            timoteo_id = int(t_raw)
+        except ValueError:
+            timoteo_id = None
+    # Seguridad: el timoteo elegido debe estar realmente a cargo de este líder.
+    if timoteo_id is not None:
+        permitidos = [t["id"] for t in q(_SQL_TIMOTEOS, (lid, lid))]
+        if timoteo_id not in permitidos:
+            flash("Ese timoteo no está a tu cargo. Elige uno de tu lista.", "error")
+            return redirect(url_for("informe_express"))
+
+    # ¿Ya existe informe de ESTE líder + ESTE timoteo en ESTA FECHA? → corrige (UPDATE)
     existente = q("""SELECT id FROM celulas_informe
                      WHERE lider_id=%s
-                       AND EXTRACT(YEAR FROM fecha)::int=%s
-                       AND EXTRACT(WEEK FROM fecha)::int=%s
+                       AND fecha=%s
+                       AND timoteo_id IS NOT DISTINCT FROM %s
                      ORDER BY created_at DESC LIMIT 1""",
-                  (lid, anio_iso, semana_iso), one=True)
+                  (lid, fecha_sel, timoteo_id), one=True)
+
+    # Si es un informe NUEVO (timoteo distinto), respetar el máximo de 3 por semana.
+    if not existente:
+        n_sem = q("""SELECT COUNT(*) AS c FROM celulas_informe
+                     WHERE lider_id=%s
+                       AND EXTRACT(YEAR FROM fecha)::int=%s
+                       AND EXTRACT(WEEK FROM fecha)::int=%s""",
+                  (lid, anio_iso, semana_iso), one=True)["c"]
+        if (n_sem or 0) >= 3:
+            flash("Ya enviaste el máximo de 3 informes para esta semana. "
+                  "Si quieres corregir uno, repite la misma fecha y el mismo timoteo que usaste antes.",
+                  "error")
+            return redirect(url_for("informe_express"))
 
     # Datos del líder para pastor_id, red, etc.
     ldata = q("""SELECT l.lider_padre_id, l.red, l.iglesia_id,
@@ -2575,24 +2627,25 @@ def informe_guardar():
             q("""UPDATE celulas_informe SET
                      pastor_id=%s, mes=%s, red=%s, direccion=%s, comuna=%s, horario=%s,
                      realizo=%s, justificacion=%s, discipulos_asistieron=%s,
-                     discipulos_no_asistieron=%s, ofrenda=%s, tipo_ofrenda=%s, modalidad=%s
+                     discipulos_no_asistieron=%s, ofrenda=%s, tipo_ofrenda=%s, modalidad=%s,
+                     timoteo_id=%s
                  WHERE id=%s""",
                 (ldata["lider_padre_id"], mes_sel, ldata["red"], ldata["direccion"],
                  ldata["comuna"], ldata["horario"], realizo, justificacion,
                  f.get("asistieron"), f.get("no_asistieron"),
                  f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
-                 existente["id"]), commit=True)
+                 timoteo_id, existente["id"]), commit=True)
         else:
             q("""INSERT INTO celulas_informe
                     (lider_id, pastor_id, fecha, mes, red, direccion, comuna, horario,
                      realizo, justificacion, discipulos_asistieron, discipulos_no_asistieron,
-                     ofrenda, tipo_ofrenda, modalidad, iglesia_id)
-                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                     ofrenda, tipo_ofrenda, modalidad, timoteo_id, iglesia_id)
+                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (lid, ldata["lider_padre_id"], fecha_sel, mes_sel,
                  ldata["red"], ldata["direccion"], ldata["comuna"], ldata["horario"],
                  realizo, justificacion, f.get("asistieron"), f.get("no_asistieron"),
                  f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
-                 ldata["iglesia_id"] or 1), commit=True)
+                 timoteo_id, ldata["iglesia_id"] or 1), commit=True)
         log_audit("INFORME_EXPRESS", "celulas", f"lider={lid} realizo={realizo} ip={ip}")
         session["informe_expira"] = time.time() + INFORME_SESION_SEG  # refresca ventana tras enviar
         # Éxito: pantalla de confirmación con botón "Enviar otro informe".
@@ -2750,8 +2803,11 @@ def reportes():
         if r["lider_info"]:
             r["lider_detalle"] = q("""SELECT ci.fecha, ci.mes, ci.red, ci.realizo, ci.justificacion,
                 ci.discipulos_asistieron, ci.discipulos_no_asistieron, ci.ofrenda,
-                ci.tipo_ofrenda, ci.modalidad, ci.created_at
-                FROM celulas_informe ci WHERE ci.lider_id=%s
+                ci.tipo_ofrenda, ci.modalidad, ci.created_at,
+                ht.nombre_completo AS timoteo
+                FROM celulas_informe ci
+                LEFT JOIN hermanos ht ON ht.id=ci.timoteo_id
+                WHERE ci.lider_id=%s
                 ORDER BY ci.fecha DESC NULLS LAST, ci.created_at DESC""", (lider_sel,))
     catalog = {"por_red": ("Reporte por red", ["red", "estado_celula", "c"]), "por_comuna": ("Reporte por comuna", ["region", "comuna", "c"]),
         "sin_celula": ("Sin celula", ["nombre_completo", "red"]), "pendientes": ("Pendientes", ["nombre_completo", "etapa", "fecha"]),
@@ -2763,7 +2819,7 @@ def reportes():
         "celulas_resumen": ("Informe Célula · Por Líder", ["lider", "red", "pastor", "total_informes", "realizadas", "no_realizadas", "total_ofrenda", "ultima_fecha"]),
         "celulas_por_pastor": ("Informe Célula · Por Pastor", ["pastor", "red_pastor", "total_lideres", "total_informes", "realizadas", "no_realizadas", "total_ofrenda"]),
         "celulas_por_red": ("Informe Célula · Por Red", ["red", "total_lideres", "total_informes", "realizadas", "no_realizadas", "total_ofrenda"]),
-        "lider_detalle": ("Informe Célula · Detalle de un líder", ["fecha", "mes", "realizo", "discipulos_asistieron", "discipulos_no_asistieron", "justificacion", "ofrenda", "tipo_ofrenda", "modalidad"])}
+        "lider_detalle": ("Informe Célula · Detalle de un líder", ["fecha", "mes", "timoteo", "realizo", "discipulos_asistieron", "discipulos_no_asistieron", "justificacion", "ofrenda", "tipo_ofrenda", "modalidad"])}
     if exp in ("excel", "pdf"):
         if ver == "todos":
             all_rows = []
