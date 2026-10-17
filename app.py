@@ -400,6 +400,29 @@ def log_audit(accion, modulo, detalle=""):
     except Exception as e:
         print(f"audit log failed: {e}")
 
+def log_error_informe(origen, lid, e, extra=""):
+    """Registra en auditoría (accion=ERROR_GUARDADO, modulo=celulas) un error al
+    guardar un informe de célula, para que SUPERADMIN/ADMIN lo revisen en Configuración."""
+    try:
+        nombre = ""
+        lid_int = None
+        if lid:
+            try:
+                lid_int = int(lid)
+            except (TypeError, ValueError):
+                lid_int = None
+        if lid_int:
+            r = q("""SELECT h.nombre_completo FROM lideres l
+                      JOIN hermanos h ON h.id=l.hermano_id WHERE l.id=%s""",
+                   (lid_int,), one=True)
+            nombre = r["nombre_completo"] if r else ""
+        detalle = f"[{origen}] líder {lid or '?'} {nombre} — {e}"
+        if extra:
+            detalle += f" | {extra}"
+        log_audit("ERROR_GUARDADO", "celulas", detalle)
+    except Exception as ex:
+        print(f"log_error_informe failed: {ex}")
+
 def to_excel(rows, headers, filename):
     wb = Workbook(); ws = wb.active; ws.title = "Reporte"
     ws.append(headers)
@@ -2231,6 +2254,8 @@ def celulas_informe_crear():
         flash("Informe registrado", "ok")
     except Exception as e:
         flash(f"Error: {e}", "error")
+        log_error_informe("ALTA_ADMIN", lid, e,
+                          f"fecha={f.get('fecha')} mes={f.get('mes')} red={f.get('red')} tipo_ofrenda={f.get('tipo_ofrenda')}")
     return redirect(url_for("celulas_informe_lista"))
 
 @app.get("/celulas-informe/<int:cid>/editar")
@@ -2276,6 +2301,8 @@ def celulas_informe_update(cid):
         flash("Informe actualizado", "ok")
     except Exception as e:
         flash(f"Error: {e}", "error")
+        log_error_informe("EDICION_ADMIN", f.get("lider_id"), e,
+                          f"id={cid} fecha={f.get('fecha')} mes={f.get('mes')} tipo_ofrenda={f.get('tipo_ofrenda')}")
     return redirect(url_for("celulas_informe_lista"))
 
 @app.post("/celulas-informe/<int:cid>/eliminar")
@@ -2549,6 +2576,8 @@ def informe_guardar():
     except Exception as e:
         flash(f"Error al guardar: {e}", "error")
         print(f"informe_guardar error: {e}")
+        log_error_informe("INFORME_EXPRESS", lid, e,
+                          f"fecha={f.get('fecha')} realizo={realizo} tipo_ofrenda={f.get('tipo_ofrenda')} ofrenda={f.get('ofrenda')} ip={ip}")
 
     return redirect(url_for("informe_express"))
 
@@ -3021,7 +3050,14 @@ def configuracion():
         up = q("SELECT modulo, puede_leer, puede_crear, puede_editar, puede_eliminar, puede_exportar FROM usuario_permisos WHERE usuario_id=%s", (uid,))
         user_perms[uid] = {r["modulo"]: r for r in up}
     igls_cfg = q("SELECT id,nombre,tipo FROM iglesias WHERE activo ORDER BY id") if session.get("rol") == "SUPERADMIN" else []
-    return render_template("configuracion.html", catalogos=cats, usuarios=users, perm_all=perm_all, user_perms=user_perms, roles=obtener_roles(), modulos=MODULOS_INFO, lideres=lideres, iglesias_cfg=igls_cfg)
+    # Errores al guardar informes de célula (solo SUPERADMIN/ADMIN los revisan)
+    errores_informes = []
+    if session.get("rol") in ("SUPERADMIN", "ADMIN"):
+        errores_informes = q("""SELECT a.id, a.created_at, a.username, a.detalle, a.ip, i.nombre AS iglesia
+            FROM auditoria a LEFT JOIN iglesias i ON i.id=a.iglesia_id
+            WHERE a.accion='ERROR_GUARDADO' AND a.modulo='celulas'
+            ORDER BY a.created_at DESC LIMIT 100""")
+    return render_template("configuracion.html", catalogos=cats, usuarios=users, perm_all=perm_all, user_perms=user_perms, roles=obtener_roles(), modulos=MODULOS_INFO, lideres=lideres, iglesias_cfg=igls_cfg, errores_informes=errores_informes)
 
 @app.post("/configuracion")
 @login_req

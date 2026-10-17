@@ -8,6 +8,7 @@
 {% endfor %}
 <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#usuarios">👥 Usuarios</a></li>
 {% if rol in ['SUPERADMIN', 'ADMIN'] %}<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#codigos_lideres">🔐 Códigos Líderes</a></li>{% endif %}
+{% if rol in ['SUPERADMIN', 'ADMIN'] %}<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#errores_informes">⚠️ Errores Informes</a></li>{% endif %}
 </ul>
 
 <div class="tab-content mt-3">
@@ -405,6 +406,33 @@ function editarIcono(tabla, id, actual) {
       </table>
     </div>
   </div>
+</div>
+{% endif %}
+
+{% if rol in ['SUPERADMIN', 'ADMIN'] %}
+<div class="tab-pane fade" id="errores_informes">
+  <h5>⚠️ Errores al guardar informes de célula</h5>
+  <p class="text-muted">Intentos de informe (desde <code>/informe</code> exprés o desde el panel) que <b>fallaron al grabarse</b>. Ayuda a ver por qué un informe no llegó. Si un líder dice que "no guardó", revise aquí.</p>
+
+  {% if errores_informes %}
+  <div class="table-responsive">
+  <table class="table table-sm table-striped align-middle">
+    <tr><th>Fecha y hora</th><th>Líder / Iglesia</th><th>Detalle del error</th><th>IP</th></tr>
+    {% for e in errores_informes %}
+    <tr>
+      <td class="text-nowrap">{{ e.created_at.strftime('%d-%m-%Y %H:%M:%S') }}</td>
+      <td>{{ e.detalle.split('—')[0].strip() }}{% if e.iglesia %}<br><small class="text-muted">{{ e.iglesia }}</small>{% endif %}</td>
+      <td class="text-danger small">{{ e.detalle }}</td>
+      <td class="text-nowrap small">{{ e.ip }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="alert alert-success">✅ Sin errores registrados al guardar informes.</div>
+  {% endif %}
+
+  <small class="text-muted">Se muestran los últimos 100 errores. Cada intento fallido se registra automáticamente en la auditoría con acción <code>ERROR_GUARDADO</code>.</small>
 </div>
 {% endif %}
 </div>
