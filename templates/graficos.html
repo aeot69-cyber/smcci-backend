@@ -25,6 +25,8 @@
 <div class="col-lg-6 mb-4"><div class="small fw-bold mb-1">Visitas recibidas — por red y estado (se irá llenando)</div><canvas id="visitas" height="210"></canvas></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script>
 const G = {{ graficos|tojson }};
 const PALETA = ['#0d6efd','#198754','#dc3545','#ffc107','#6f42c1','#fd7e14','#20c997','#6c757d'];
@@ -83,6 +85,57 @@ function crear(id, tipo) {
       plugins: {legend: {position: 'bottom'}},
       scales: circular ? {} : {y: {beginAtZero: true, ticks: {precision: 0}}}}});
 }
+// ================= Exportar CADA gráfico a Excel / PDF =================
+const TITULOS = {};
+function expExcel(id){
+  const d = G[id];
+  if(!d || !d.labels.length){ alert('Este gráfico no tiene datos para exportar en el período seleccionado.'); return; }
+  const aoa = [[TITULOS[id] || id], [],
+               ['Etiqueta'].concat(d.datasets.map(s => s.label))];
+  d.labels.forEach((lab, i) => {
+    aoa.push([lab].concat(d.datasets.map(s => {
+      const v = s.data[i];
+      return (v === null || v === undefined) ? '' : v;
+    })));
+  });
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch: 34}].concat(d.datasets.map(() => ({wch: 14})));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Datos');
+  XLSX.writeFile(wb, id + '.xlsx');
+}
+function expPDF(id){
+  const c = CHARTS[id];
+  if(!c){ alert('Este gráfico no tiene datos para exportar en el período seleccionado.'); return; }
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({orientation: 'landscape', unit: 'mm', format: 'a4'});
+  pdf.setFont(undefined, 'bold'); pdf.setFontSize(14);
+  pdf.text(TITULOS[id] || id, 14, 16);
+  pdf.setFont(undefined, 'normal'); pdf.setFontSize(10);
+  pdf.setTextColor(100);
+  pdf.text('SMCCI · Rango: {{desde}} a {{hasta}}', 14, 204);
+  // mantiene la proporción del gráfico, cabe en ~200x120 mm
+  const cvs = c.canvas;
+  const ar = (cvs && cvs.width && cvs.height) ? (cvs.width / cvs.height) : 2;
+  let w = 200, h = w / ar;
+  if (h > 120) { h = 120; w = h * ar; }
+  pdf.addImage(c.toBase64Image(), 'PNG', 14, 26, w, h);
+  pdf.save(id + '.pdf');
+}
+// Botones junto a cada título (se insertan ANTES de crear() para capturar los canvas)
+document.querySelectorAll('.small.fw-bold.mb-1').forEach(t => {
+  const col = t.parentElement;
+  const cv = col ? col.querySelector('canvas') : null;
+  if (!cv) return;
+  const id = cv.id;
+  TITULOS[id] = t.textContent.trim();
+  const span = document.createElement('span');
+  span.className = 'float-end ms-2';
+  span.innerHTML =
+    '<button type="button" class="btn btn-outline-success btn-sm me-1" title="Exportar a Excel" onclick="expExcel(\'' + id + '\')">📊 Excel</button>' +
+    '<button type="button" class="btn btn-outline-danger btn-sm" title="Exportar a PDF" onclick="expPDF(\'' + id + '\')">📄 PDF</button>';
+  t.appendChild(span);
+});
 [['asistencia','bar'],['informes_red','bar'],['informes_mes','bar'],['discipulos','bar'],
  ['visitas_nuevas','bar'],['visitas','bar'],
  ['evolucion','line'],['informes_circular','pie'],['discipulos_anillo','doughnut']]

@@ -169,9 +169,6 @@
 </table>
 </div>
 
-</div>
-</div>
-
 {% for u in usuarios %}
 <div class="modal fade" id="perm{{u.id}}" tabindex="-1">
 <div class="modal-dialog modal-lg"><div class="modal-content">
@@ -382,15 +379,24 @@ function editarIcono(tabla, id, actual) {
   <div class="card">
     <div class="card-header bg-info text-white"><strong>Estado actual de códigos</strong></div>
     <div class="card-body">
-      <table class="table table-sm table-striped">
-        <tr><th>Líder</th><th>Red</th><th>Código</th><th>Estado</th></tr>
+      <div class="row g-2 mb-2 align-items-end">
+        <div class="col-md-5">
+          <label class="form-label small mb-0">🔍 Buscar líder o red (para ver su código)</label>
+          <input class="form-control" id="buscar_codigo" placeholder="Escribe el nombre del líder o la red..." oninput="filtrarCodigos()">
+        </div>
+        <div class="col-md-7"><small class="text-muted">Si un líder perdió su código, búscalo aquí para verlo. Si quieres uno nuevo, usa 🔁 en su fila.</small></div>
+      </div>
+      <div class="table-responsive" style="max-height:420px; overflow-y:auto;">
+      <table class="table table-sm table-striped align-middle" id="tabla_codigos">
+        <thead class="table-dark" style="position:sticky; top:0;"><tr><th>Líder</th><th>Red</th><th>Código</th><th>Estado</th><th>Acción</th></tr></thead>
+        <tbody>
         {% for l in lideres %}
         <tr>
           <td>{{l.nombre_completo}}</td>
           <td>{{l.red}}</td>
           <td>
             {% set cod = l.codigo_informe or '' %}
-            {% if cod %}<code class="bg-light px-2 py-1">{{cod}}</code>{% else %}<span class="text-danger">— SIN CÓDIGO —</span>{% endif %}
+            {% if cod %}<code class="bg-light px-2 py-1 fs-6">{{cod}}</code>{% else %}<span class="text-danger">— SIN CÓDIGO —</span>{% endif %}
           </td>
           <td>
             {% if l.codigo_informe %}
@@ -399,13 +405,35 @@ function editarIcono(tabla, id, actual) {
               <span class="badge bg-danger">Pendiente</span>
             {% endif %}
           </td>
+          <td class="text-nowrap">
+            <form method="post" class="d-inline" onsubmit="return confirm('¿Regenerar el código de {{l.nombre_completo}}? El código anterior dejará de funcionar.')">
+              <input type="hidden" name="catalogo" value="__usuarios__">
+              <input type="hidden" name="accion" value="generar_codigo_un_lider">
+              <input type="hidden" name="lider_id" value="{{l.id}}">
+              <input type="hidden" name="forzar" value="on">
+              <button class="btn btn-sm btn-outline-warning" title="Regenerar código de {{l.nombre_completo}}">🔁</button>
+            </form>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan=4 class="text-muted">Sin líderes</td></tr>
+        <tr><td colspan=5 class="text-muted">Sin líderes</td></tr>
         {% endfor %}
+        </tbody>
       </table>
+      </div>
+      <small class="text-muted">Mostrando los líderes con su código actual. Usa la búsqueda para filtrar; 🔁 genera un código nuevo (invalida el anterior).</small>
     </div>
   </div>
+  <script>
+  function filtrarCodigos(){
+    var q = document.getElementById('buscar_codigo').value.toLowerCase();
+    var filas = document.querySelectorAll('#tabla_codigos tbody tr');
+    filas.forEach(function(f){
+      var txt = f.textContent.toLowerCase();
+      f.style.display = txt.indexOf(q) === -1 ? 'none' : '';
+    });
+  }
+  </script>
 </div>
 {% endif %}
 
