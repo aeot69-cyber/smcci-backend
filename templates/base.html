@@ -12,7 +12,7 @@
 </div>
 </div>
 <div class="col-12 col-md-9 col-lg-10 p-0"><div class="topbar p-2 px-3 d-flex justify-content-between align-items-center flex-wrap"><b class="small">Sistema de Consolidación · Iglesia MCCI</b><span class="small">{% if session.user %}<span class="badge bg-warning text-dark me-1">📍 {{vista_igl}}</span>{% if session.rol=='SUPERADMIN' and iglesias_lst %}<form method="get" action="/ver-iglesia" class="d-inline"><select name="iglesia" class="form-select form-select-sm d-inline w-auto" onchange="this.form.submit()" title="Cambiar iglesia en vista"><option value="todas" {% if vista_igl=='TODAS' %}selected{% endif %}>TODAS</option>{% for ig in iglesias_lst %}<option value="{{ig.id}}" {% if vista_igl==ig.nombre %}selected{% endif %}>{{ig.nombre}} ({{ig.tipo}})</option>{% endfor %}</select></form>{% endif %}{{session.user}}{% else %}Invitado{% endif %}</span></div>
-<div class="p-2 p-md-3">{% for cat,msg in get_flashed_messages(with_categories=true) %}<div class="alert alert-{{'success' if cat=='ok' else 'danger'}} py-2">{{msg}}</div>{% endfor %}{% block b %}{% endblock %}</div></div>
+<div class="p-3">{% for cat,msg in get_flashed_messages(with_categories=true) %}<div class="alert alert-{{'success' if cat=='ok' else 'danger'}} py-2">{{msg}}</div>{% endfor %}{% block b %}{% endblock %}</div></div>
 </div></div>
 <script>
 document.addEventListener('DOMContentLoaded', function(){
