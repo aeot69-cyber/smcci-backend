@@ -5,6 +5,7 @@
 <li><b>Red:</b> valores configurables en ⚙️ Configuración → Redes.</li>
 <li><b>Tipo 12:</b> valores configurables en ⚙️ Configuración → Tipo 12.</li>
 <li><b>Padre:</b> pastor/líder al que reporta (jerarquía G12). Selecciona "— Sin padre" para quitar.</li>
+<li><b>Timoteo:</b> elige UN timoteo de los que el líder tiene a cargo (discípulos activos y sub-líderes). Se guarda automáticamente al elegirlo; "— Sin timoteo —" si no aplica.</li>
 <li><b>Filtrar por Padre:</b> ver solo los hijos de un líder específico.</li></ul></details>
 <form class="row g-2 mb-2" method="get">
 <div class="col"><input class="form-control" name="q" value="{{texto}}" placeholder="Buscar líder por nombre o código..." title="Filtra por nombre o código"></div>
@@ -16,6 +17,7 @@
 <th title="Nombre del líder">Líder</th>
 <th title="Rol del líder">Rol</th>
 <th title="Pastor/Líder al que reporta">Padre</th>
+<th title="Discípulos activos y sub-líderes a cargo del líder (timoteo)">Timoteo</th>
 <th title="Red: grupo que lidera">Red</th>
 <th title="Cobertura de los 12">Tipo 12</th>
 <th title="Célula">Célula</th>
@@ -29,6 +31,7 @@
 <td><b>{{l.lider}}</b></td>
 <td><span style="font-size:1.2em" title="{{l.rol_lider or 'Ninguno'}}">{{ rol_iconos.get(l.rol_lider, '—') if rol_iconos else '—' }}</span></td>
 <td>{{l.pastor_nombre or '-'}}</td>
+<td class="small" style="min-width:170px"><form method="post" action="/lideres/{{l.lider_id}}/timoteo" class="d-inline"><select name="timoteo" class="form-select form-select-sm" onchange="this.form.submit()" title="Elige UN timoteo de los que tiene a cargo (se guarda al elegirlo)"><option value="">— Sin timoteo —</option>{% for tid,tnom in tim_opts.get(l.lider_id, []) %}<option value="{{tid}}" {% if tim_sel.get(l.lider_id)==tid %}selected{% endif %}>{{tnom}}</option>{% endfor %}</select></form></td>
 <td><span class="badge bg-primary">{{l.red or '—'}}</span></td>
 <td><span class="badge badge-12 text-white">{{l.tipo_12 or '—'}}</span></td>
 <td>{{l.estado_celula or '—'}}</td><td>{{l.info_enviada or '—'}}</td><td>{{l.cantidad_celulas}}</td><td>{{l.cantidad_macrocelulas}}</td><td><b>{{l.discipulos_activos}}</b></td>

@@ -1549,8 +1549,30 @@ def lideres():
         where += " AND l.lider ILIKE %s"
         params.append(f"%{texto}%")
     rows = q(f"SELECT * FROM v_lideres_conteo l {where} ORDER BY discipulos_activos DESC", tuple(params))
-    if exp == "excel": return to_excel(rows, ["codigo", "lider", "rol_lider", "pastor_nombre", "red", "tipo_12", "estado_celula", "info_enviada", "cantidad_celulas", "cantidad_macrocelulas", "discipulos_activos"], "lideres.xlsx")
-    if exp == "pdf": return to_pdf("Lideres MCCI", rows, ["codigo", "lider", "rol_lider", "red", "tipo_12", "cantidad_celulas", "cantidad_macrocelulas", "discipulos_activos"], "lideres.pdf")
+    # Timoteo por líder: opciones a cargo (discípulos activos + sub-líderes) y el guardado actualmente.
+    tim_opts, tim_sel, tim_nombre = {}, {}, {}
+    if rows:
+        lids = tuple(r["lider_id"] for r in rows)
+        ph = ",".join(["%s"] * len(lids))
+        for r in q(f"""SELECT lid, id, nombre FROM (
+            SELECT d.lider_id AS lid, d.hermano_id AS id, h.nombre_completo AS nombre
+              FROM discipulado d JOIN hermanos h ON h.id=d.hermano_id
+             WHERE d.fecha_fin IS NULL AND d.es_discipulo_activo AND d.lider_id IN ({ph})
+            UNION
+            SELECT l2.lider_padre_id AS lid, l2.hermano_id AS id, h.nombre_completo AS nombre
+              FROM lideres l2 JOIN hermanos h ON h.id=l2.hermano_id
+             WHERE l2.activo AND l2.lider_padre_id IN ({ph})
+        ) t ORDER BY nombre""", lids + lids):
+            tim_opts.setdefault(r["lid"], []).append((r["id"], r["nombre"]))
+        for r in q(f"""SELECT l.id AS lid, l.timoteo_id AS tid, h.nombre_completo AS tnom
+                       FROM lideres l LEFT JOIN hermanos h ON h.id=l.timoteo_id
+                      WHERE l.id IN ({ph})""", lids):
+            tim_sel[r["lid"]] = r["tid"]
+            tim_nombre[r["lid"]] = r["tnom"] or ""
+        for r in rows:
+            r["timoteo"] = tim_nombre.get(r["lider_id"], "")
+    if exp == "excel": return to_excel(rows, ["codigo", "lider", "rol_lider", "pastor_nombre", "timoteo", "red", "tipo_12", "estado_celula", "info_enviada", "cantidad_celulas", "cantidad_macrocelulas", "discipulos_activos"], "lideres.xlsx")
+    if exp == "pdf": return to_pdf("Lideres MCCI", rows, ["codigo", "lider", "rol_lider", "pastor_nombre", "timoteo", "red", "tipo_12", "cantidad_celulas", "cantidad_macrocelulas", "discipulos_activos"], "lideres.pdf")
     if fi:
         todos = q("""SELECT l.id, h.nombre_completo AS nombre,
             (SELECT COUNT(*) FROM lideres l2 WHERE l2.lider_padre_id=l.id AND l2.activo AND l2.iglesia_id=%s) AS hijos
@@ -1569,7 +1591,8 @@ def lideres():
     # Dict rol_nombre → icono para display
     rol_iconos = {r["nombre"]: r.get("icono","—") for r in catalogos_l["roles_lider"]}
     return render_template("lideres.html", rows=rows, f12=f12, texto=texto,
-        fpadre=int(fpadre) if fpadre else None, todos_lideres=todos, catalogos_l=catalogos_l, rol_iconos=rol_iconos)
+        fpadre=int(fpadre) if fpadre else None, todos_lideres=todos, catalogos_l=catalogos_l, rol_iconos=rol_iconos,
+        tim_opts=tim_opts, tim_sel=tim_sel)
 
 @app.get("/lideres/nuevo")
 @login_req
@@ -1657,6 +1680,21 @@ def lider_estado(lid):
         })
     log_audit("EDITAR","lideres", f"id={lid} rol={rol}")
     flash("Líder actualizado", "ok"); return redirect(url_for("lideres"))
+
+@app.post("/lideres/<int:lid>/timoteo")
+@login_req
+@permiso_req("lideres", "editar")
+def lider_timoteo(lid):
+    if not exigir_igl("lideres", lid):
+        flash("Ese lider no es de tu iglesia", "error"); return redirect(url_for("lideres"))
+    t = (request.form.get("timoteo") or "").strip()
+    tid = int(t) if t.isdigit() else None
+    # Seguridad: el timoteo elegido debe estar realmente a cargo de este líder.
+    if tid is not None and tid not in [r["id"] for r in q(_SQL_TIMOTEOS, (lid, lid))]:
+        flash("Ese timoteo no está a cargo del líder", "error"); return redirect(url_for("lideres"))
+    q("UPDATE lideres SET timoteo_id=%s, updated_at=now() WHERE id=%s", (tid, lid), commit=True)
+    log_audit("EDITAR", "lideres", f"id={lid} timoteo_id={tid}")
+    flash("Timoteo actualizado", "ok"); return redirect(url_for("lideres"))
 
 @app.post("/lideres/<int:lid>/eliminar")
 @login_req
