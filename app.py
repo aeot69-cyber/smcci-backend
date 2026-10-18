@@ -2239,18 +2239,24 @@ def celulas_informe_crear():
     if not lid or not f.get("fecha") or not f.get("mes") or not f.get("red"):
         flash("No se registro: faltan datos obligatorios (lider, fecha, mes, red)", "error")
         return redirect(url_for("celulas_informe_nuevo"))
+    # Timoteo (opcional): debe estar realmente a cargo del líder elegido.
+    tid = (f.get("timoteo_id") or "").strip()
+    timoteo_id = int(tid) if tid.isdigit() else None
+    if timoteo_id is not None and timoteo_id not in [t["id"] for t in q(_SQL_TIMOTEOS, (lid, lid))]:
+        flash("Ese timoteo no está a cargo del líder elegido.", "error")
+        return redirect(url_for("celulas_informe_nuevo"))
     cigl = iglesia_de("lideres", lid) if lid else (session.get("iglesia_id") or 1)
     try:
         q("""INSERT INTO celulas_informe(lider_id,pastor_id,fecha,mes,red,direccion,comuna,
             horario,realizo,justificacion,discipulos_asistieron,discipulos_no_asistieron,
-            ofrenda,tipo_ofrenda,modalidad,iglesia_id)
+            ofrenda,tipo_ofrenda,modalidad,timoteo_id,iglesia_id)
             VALUES(NULLIF(%s,'')::int,NULLIF(%s,'')::int,NULLIF(%s,'')::date,%s,%s,%s,%s,%s,
-            %s,%s,%s,%s,NULLIF(%s,'')::decimal,%s,%s,%s)""",
+            %s,%s,%s,%s,NULLIF(%s,'')::decimal,%s,%s,%s,%s)""",
           (lid, pid, f.get("fecha"), f.get("mes"), f.get("red"),
            f.get("direccion"), f.get("comuna"), f.get("horario"),
            f.get("realizo") == "on", f.get("justificacion"), f.get("asistieron"),
            f.get("no_asistieron"), f.get("ofrenda") or "0", f.get("tipo_ofrenda"),
-           f.get("modalidad"), cigl), commit=True)
+           f.get("modalidad"), timoteo_id, cigl), commit=True)
         flash("Informe registrado", "ok")
     except Exception as e:
         flash(f"Error: {e}", "error")
@@ -2287,16 +2293,22 @@ def celulas_informe_update(cid):
     if not f.get("lider_id") or not f.get("fecha") or not f.get("mes") or not f.get("red"):
         flash("No se guardo: faltan datos obligatorios (lider, fecha, mes, red)", "error")
         return redirect(url_for("celulas_informe_editar", cid=cid))
+    # Timoteo (opcional): debe estar realmente a cargo del líder elegido.
+    tid = (f.get("timoteo_id") or "").strip()
+    timoteo_id = int(tid) if tid.isdigit() else None
+    if timoteo_id is not None and timoteo_id not in [t["id"] for t in q(_SQL_TIMOTEOS, (f.get("lider_id"), f.get("lider_id")))]:
+        flash("Ese timoteo no está a cargo del líder elegido.", "error")
+        return redirect(url_for("celulas_informe_editar", cid=cid))
     try:
         q("""UPDATE celulas_informe SET lider_id=NULLIF(%s,'')::int,pastor_id=NULLIF(%s,'')::int,
             fecha=NULLIF(%s,'')::date,mes=%s,red=%s,direccion=%s,comuna=%s,horario=%s,
             realizo=%s,justificacion=%s,discipulos_asistieron=%s,discipulos_no_asistieron=%s,
-            ofrenda=NULLIF(%s,'')::decimal,tipo_ofrenda=%s,modalidad=%s WHERE id=%s""",
+            ofrenda=NULLIF(%s,'')::decimal,tipo_ofrenda=%s,modalidad=%s,timoteo_id=%s WHERE id=%s""",
           (f.get("lider_id"), f.get("pastor_id"), f.get("fecha"), f.get("mes"), f.get("red"),
            f.get("direccion"), f.get("comuna"), f.get("horario"),
            f.get("realizo") == "on", f.get("justificacion"), f.get("asistieron"),
            f.get("no_asistieron"), f.get("ofrenda") or "0", f.get("tipo_ofrenda"),
-           f.get("modalidad"), cid), commit=True)
+           f.get("modalidad"), timoteo_id, cid), commit=True)
         log_audit("EDITAR","celulas", f"id={cid}")
         flash("Informe actualizado", "ok")
     except Exception as e:
@@ -2318,6 +2330,18 @@ def celulas_informe_eliminar(cid):
     except Exception as e:
         flash(f"Error: {e}", "error")
     return redirect(url_for("celulas_informe_lista"))
+
+@app.get("/celulas-informe/timoteos/<int:lid>")
+@login_req
+@permiso_req("celulas", "leer")
+def celulas_informe_timoteos(lid):
+    """Timoteos (discípulos/sub-líderes) de un líder, para el selector del
+    formulario interno de informe. Devuelve JSON."""
+    if not exigir_igl("lideres", lid):
+        return jsonify(ok=False, error="iglesia"), 403
+    rows = q(_SQL_TIMOTEOS, (lid, lid))
+    return jsonify(ok=True,
+                   timoteos=[{"id": r["id"], "nombre": r["nombre_completo"]} for r in rows])
 
 # ---------- INFORME EXPRESS (público, sin login) ----------
 from datetime import date, datetime

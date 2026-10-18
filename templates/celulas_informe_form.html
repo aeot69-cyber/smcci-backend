@@ -4,14 +4,22 @@
 <form method="post">
 <div class="row g-3">
 
-<div class="col-md-6">
+<div class="col-md-4">
 <label class="form-label">Nombre del Líder *</label>
-<select class="form-select" name="lider_id" required>
+<select class="form-select" name="lider_id" id="sel_lider" required onchange="cargarTimoteos()">
 <option value="">Seleccionar líder...</option>
 {% for l in lideres %}<option value="{{l.id}}" {{'selected' if c and c.lider_id==l.id}}>{{l.nombre_completo}}</option>{% endfor %}
 </select></div>
 
-<div class="col-md-6">
+<div class="col-md-4">
+<label class="form-label">Timoteo (discípulo a cargo)</label>
+<select class="form-select" name="timoteo_id" id="sel_timoteo">
+<option value="">No tengo timoteo (célula propia)</option>
+</select>
+<div class="form-text" id="txt_timoteo">Selecciona el líder para ver sus timoteos.</div>
+</div>
+
+<div class="col-md-4">
 <label class="form-label">Líder / Pastor a cargo de su célula *</label>
 <select class="form-select" name="pastor_id" required>
 <option value="">Seleccionar...</option>
@@ -112,5 +120,40 @@
 function toggleJust(){
     document.getElementById('div_just').style.display=document.getElementById('si').checked?'none':'block';
 }
+// Timoteo: carga los timoteos del líder elegido (mismo comportamiento que el informe exprés).
+var TIMOTEO_ACTUAL = "{{ (c.timoteo_id if c and c.timoteo_id else '') }}";
+function cargarTimoteos(){
+    var sel = document.getElementById('sel_timoteo');
+    var lid = document.getElementById('sel_lider').value;
+    var txt = document.getElementById('txt_timoteo');
+    sel.innerHTML = '<option value="">No tengo timoteo (célula propia)</option>';
+    if(!lid){ txt.textContent = 'Selecciona el líder para ver sus timoteos.'; return; }
+    txt.textContent = 'Cargando timoteos...';
+    fetch('/celulas-informe/timoteos/' + lid).then(function(r){ return r.json(); }).then(function(d){
+        if(d.ok){
+            (d.timoteos||[]).forEach(function(t){
+                var o = document.createElement('option');
+                o.value = t.id; o.textContent = t.nombre;
+                if(String(t.id) === String(TIMOTEO_ACTUAL)) o.selected = true;
+                sel.appendChild(o);
+            });
+            var n = (d.timoteos||[]).length;
+            txt.textContent = n ? ('Tiene ' + n + ' timoteo(s) a su cargo.') : 'Este líder no tiene timoteos registrados.';
+        } else { txt.textContent = 'No se pudo cargar la lista de timoteos.'; }
+    }).catch(function(){ txt.textContent = 'No se pudo cargar la lista de timoteos.'; });
+}
+// Mes automático desde la fecha (como en el informe exprés); se puede corregir a mano.
+var MESES = {1:'ENERO',2:'FEBRERO',3:'MARZO',4:'ABRIL',5:'MAYO',6:'JUNIO',7:'JULIO',8:'AGOSTO',9:'SEPTIEMBRE',10:'OCTUBRE',11:'NOVIEMBRE',12:'DICIEMBRE'};
+function mesDesdeFecha(){
+    var fe = document.querySelector('[name=fecha]').value;
+    var m = document.querySelector('[name=mes]');
+    if(!fe) return;
+    var mes = MESES[parseInt(fe.split('-')[1], 10)];
+    if(!mes) return;
+    for(var i=0;i<m.options.length;i++){ if(m.options[i].value===mes){ m.value = mes; break; } }
+}
+document.querySelector('[name=fecha]').addEventListener('change', mesDesdeFecha);
+// Al cargar (modo edición) carga los timoteos del líder ya elegido.
+document.addEventListener('DOMContentLoaded', function(){ cargarTimoteos(); });
 </script>
 {% endblock %}

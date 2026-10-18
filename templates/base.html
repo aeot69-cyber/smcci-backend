@@ -16,6 +16,16 @@
 </div></div>
 <script>
 document.addEventListener('DOMContentLoaded', function(){
+  // Envuelve TODA tabla que no esté ya en un .table-responsive, para que el
+  // contenido ancho haga scroll horizontal DENTRO de su contenedor en vez de
+  // desbordar la página (así se ve completo al 100% de zoom del navegador).
+  document.querySelectorAll('table').forEach(function(t){
+    if (t.closest('.table-responsive')) return;
+    var d = document.createElement('div');
+    d.className = 'table-responsive';
+    t.parentNode.insertBefore(d, t);
+    d.appendChild(t);
+  });
   document.querySelectorAll('form').forEach(function(f){
     f.addEventListener('submit', function(){
       var btn = f.querySelector('button[type="submit"], button:not([type])');
