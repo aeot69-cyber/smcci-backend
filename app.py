@@ -3199,10 +3199,10 @@ def configuracion():
                 else:
                     perm_all[rl][mod["key"]][acc] = tiene_permiso(rl, mod["key"], acc, iglesia_id=igl_scope)
     if igl_scope is None:
-        lideres = q("""SELECT l.id, h.nombre_completo, l.red FROM lideres l
+        lideres = q("""SELECT l.id, h.nombre_completo, l.red, l.codigo_informe FROM lideres l
             JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo ORDER BY h.nombre_completo""")
     else:
-        lideres = q("""SELECT l.id, h.nombre_completo, l.red FROM lideres l
+        lideres = q("""SELECT l.id, h.nombre_completo, l.red, l.codigo_informe FROM lideres l
             JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo AND l.iglesia_id=%s ORDER BY h.nombre_completo""", (igl_scope,))
     user_perms = {}
     for u in users:
