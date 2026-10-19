@@ -58,15 +58,16 @@
       <div class="mb-3">
         <label class="form-label fw-bold">¿Quién es tu timoteo?</label>
         <select class="form-select" name="timoteo">
-          <option value="" selected>No tengo timoteo</option>
-          {% for t in timoteos %}<option value="{{ t.id }}">{{ t.nombre_completo }}</option>{% endfor %}
+          <option value="" {% if not borrador or not borrador.timoteo %}selected{% endif %}>No tengo timoteo</option>
+          {% for t in timoteos %}<option value="{{ t.id }}" {% if borrador and borrador.timoteo == t.id|string %}selected{% endif %}>{{ t.nombre_completo }}</option>{% endfor %}
         </select>
         <div class="form-text">{{ ay('informe_express.ft.1', timoteos=('Tienes ' ~ (timoteos|length) ~ ' a tu cargo.') if timoteos else 'Aún no tienes timoteos registrados a tu cargo.', semana=informes_semana) }}</div>
       </div>
 
       <div class="mb-3">
         <label class="form-label fw-bold">Fecha de la célula *</label>
-        <input class="form-control" type="date" name="fecha" value="{{ fecha_hoy }}" required max="{{ fecha_hoy }}">
+        <input class="form-control" type="date" name="fecha"
+               value="{{ borrador.fecha if borrador and borrador.fecha else fecha_hoy }}" required max="{{ fecha_hoy }}">
         <div class="form-text">{{ ay('informe_express.ft.2') }}</div>
       </div>
 
@@ -74,11 +75,11 @@
         <label class="form-label fw-bold">¿Se realizó su célula esta semana? *</label>
         <div class="d-flex gap-3">
           <div class="form-check flex-fill">
-            <input class="form-check-input" type="radio" name="realizo" id="si" value="1" required>
+            <input class="form-check-input" type="radio" name="realizo" id="si" value="1" required{% if borrador and borrador.realizo == '1' %} checked{% endif %}>
             <label class="form-check-label fw-bold text-success" for="si">✅ SÍ, se realizó</label>
           </div>
           <div class="form-check flex-fill">
-            <input class="form-check-input" type="radio" name="realizo" id="no" value="0">
+            <input class="form-check-input" type="radio" name="realizo" id="no" value="0"{% if borrador and borrador.realizo == '0' %} checked{% endif %}>
             <label class="form-check-label fw-bold text-danger" for="no">❌ NO</label>
           </div>
         </div>
@@ -87,7 +88,7 @@
       <div id="divNo" class="mb-3" style="display:none;">
         <label class="form-label" for="justificacion">Motivo (obligatorio si NO se realizó) *</label>
         <textarea class="form-control" id="justificacion" name="justificacion" rows="2"
-                  placeholder="Ej: viaje, enfermedad, evento de la iglesia..."></textarea>
+                  placeholder="Ej: viaje, enfermedad, evento de la iglesia...">{{ borrador.justificacion if borrador else '' }}</textarea>
       </div>
 
       <hr class="my-3">
@@ -96,25 +97,24 @@
         <div class="col-12">
           <label class="form-label">Discípulos que asistieron</label>
           <textarea class="form-control" name="asistieron" rows="2"
-                    placeholder="Nombres separados por coma..."></textarea>
+                    placeholder="Nombres separados por coma...">{{ borrador.asistieron if borrador else '' }}</textarea>
         </div>
         <div class="col-12">
           <label class="form-label">Discípulos que NO asistieron (nombre - motivo)</label>
           <textarea class="form-control" name="no_asistieron" rows="2"
-                    placeholder="Juan - trabajo; María - enfermedad..."></textarea>
+                    placeholder="Juan - trabajo; María - enfermedad...">{{ borrador.no_asistieron if borrador else '' }}</textarea>
         </div>
         <div class="col-md-6">
           <label class="form-label">Ofrenda</label>
           <input class="form-control" type="number" step="0.01" name="ofrenda"
-                 value="" min="0" placeholder="0.00">
+                 value="{{ borrador.ofrenda if borrador else '' }}" min="0" placeholder="0.00">
         </div>
         <div class="col-md-6">
           <label class="form-label">Tipo de ofrenda</label>
           <select class="form-select" name="tipo_ofrenda">
-            <option value="EFECTIVO" {% if existente and existente.tipo_ofrenda=='EFECTIVO' %}selected{% endif %}>Efectivo</option>
-            <option value="TRANSFERENCIA" {% if existente and existente.tipo_ofrenda=='TRANSFERENCIA' %}selected{% endif %}>Transferencia</option>
-            <option value="AMBOS" {% if existente and existente.tipo_ofrenda=='AMBOS' %}selected{% endif %}>Ambos</option>
-            <option value="NO SE HACE" {% if existente and existente.tipo_ofrenda=='NO SE HACE' %}selected{% endif %}>No se hace</option>
+            {% for op in ['EFECTIVO','TRANSFERENCIA','AMBOS','NO SE HACE'] %}
+            <option value="{{ op }}" {% if (existente and existente.tipo_ofrenda==op) or (borrador and borrador.tipo_ofrenda==op) %}selected{% endif %}>{{ op|capitalize }}</option>
+            {% endfor %}
           </select>
         </div>
         <div class="col-md-6">
@@ -122,12 +122,12 @@
           <select class="form-select" name="modalidad">
             {% if modalidades %}
             {% for m in modalidades %}
-            <option value="{{ m.nombre }}" {% if existente and existente.modalidad==m.nombre %}selected{% elif not existente and loop.first %}selected{% endif %}>{{ m.nombre|capitalize }}</option>
+            <option value="{{ m.nombre }}" {% if (existente and existente.modalidad==m.nombre) or (borrador and borrador.modalidad==m.nombre) %}selected{% elif not existente and not borrador and loop.first %}selected{% endif %}>{{ m.nombre|capitalize }}</option>
             {% endfor %}
             {% else %}
-            <option value="PRESENCIAL" {% if existente and existente.modalidad=='PRESENCIAL' %}selected{% endif %}>Presencial</option>
-            <option value="ONLINE" {% if existente and existente.modalidad=='ONLINE' %}selected{% endif %}>Online</option>
-            <option value="AMBAS" {% if existente and existente.modalidad=='AMBAS' %}selected{% endif %}>Ambas</option>
+            {% for op in ['PRESENCIAL','ONLINE','AMBAS'] %}
+            <option value="{{ op }}" {% if (existente and existente.modalidad==op) or (borrador and borrador.modalidad==op) %}selected{% elif not existente and not borrador and loop.first %}selected{% endif %}>{{ op|capitalize }}</option>
+            {% endfor %}
             {% endif %}
           </select>
         </div>
@@ -162,13 +162,14 @@
 </div>
 
 <script>
-  // Mostrar/ocultar motivo si NO
+  // Mostrar/ocultar motivo si NO (también si venía marcado en el borrador)
   const noRadio = document.getElementById('no');
   const siRadio = document.getElementById('si');
   const divNo = document.getElementById('divNo');
   if (noRadio && siRadio && divNo) {
     noRadio.addEventListener('change', () => divNo.style.display = 'block');
     siRadio.addEventListener('change', () => divNo.style.display = 'none');
+    if (noRadio.checked) divNo.style.display = 'block';
   }
 </script>
 {% endblock %}

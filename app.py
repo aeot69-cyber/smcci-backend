@@ -532,6 +532,27 @@ def log_audit(accion, modulo, detalle=""):
     except Exception as e:
         print(f"audit log failed: {e}")
 
+def mensaje_error_informe(e, admin=False):
+    """Traduce un error técnico a un mensaje comprensible. El detalle técnico
+    no se muestra al líder: queda en el log (log_error_informe) y en
+    Configuración › pestaña de Errores. admin=True lo deja más seco, para el
+    formulario interno."""
+    t = str(e).lower()
+    if "duplicate key" in t or "unique" in t:
+        return ("Ya enviaste un informe con esa fecha y ese timoteo. "
+                "Si quieres corregir uno, repite exactamente la misma fecha y el mismo timoteo.")
+    if "could not connect" in t or "connection" in t or "timeout" in t or "server closed" in t:
+        return ("No pudimos conectar para guardar. Revisa tu internet e intenta de nuevo"
+                + ("." if admin else ". Lo que escribiste quedó en pantalla: inténtalo de nuevo en un momento."))
+    if "foreign key" in t:
+        return ("No se pudo guardar porque falta información de tu célula"
+                + ("; revisa sus datos." if admin else ". Avísale a tu pastor."))
+    if "invalid input" in t or "invalid text representation" in t or "not a valid" in t:
+        return "Revisa los datos ingresados: la ofrenda debe ser solo números."
+    return "No se pudo guardar el informe" + ("." if admin else
+           ". Lo que escribiste quedó en pantalla: presiona «Enviar informe» de nuevo. "
+           "Si sigue fallando, avisa a tu pastor.")
+
 def log_error_informe(origen, lid, e, extra=""):
     """Registra en auditoría (accion=ERROR_GUARDADO, modulo=celulas) un error al
     guardar un informe de célula, para que SUPERADMIN/ADMIN lo revisen en Configuración."""
@@ -2430,7 +2451,8 @@ def celulas_informe_crear():
            timoteo_id, cigl), commit=True)
         flash("Informe registrado", "ok")
     except Exception as e:
-        flash(f"Error: {e}", "error")
+        flash(f"{mensaje_error_informe(e, admin=True)} El detalle quedó registrado "
+              "en Configuración › Errores.", "error")
         log_error_informe("ALTA_ADMIN", lid, e,
                           f"fecha={f.get('fecha')} tipo_ofrenda={f.get('tipo_ofrenda')} ofrenda={f.get('ofrenda')}")
     return redirect(url_for("celulas_informe_lista"))
@@ -2494,7 +2516,8 @@ def celulas_informe_update(cid):
         log_audit("EDITAR","celulas", f"id={cid}")
         flash("Informe actualizado", "ok")
     except Exception as e:
-        flash(f"Error: {e}", "error")
+        flash(f"{mensaje_error_informe(e, admin=True)} El detalle quedó registrado "
+              "en Configuración › Errores.", "error")
         log_error_informe("EDICION_ADMIN", lid, e,
                           f"id={cid} fecha={f.get('fecha')} tipo_ofrenda={f.get('tipo_ofrenda')}")
     return redirect(url_for("celulas_informe_lista"))
@@ -2837,11 +2860,15 @@ def _mostrar_formulario_informe():
               (lid, anio_hoy, sem_hoy), one=True)["c"]
 
     # Formulario SIEMPRE en blanco: no se pre-carga el último informe, así
-    # después de enviar uno el siguiente sale limpio para rellenar.
+    # después de enviar uno el siguiente sale limpio para rellenar. La única
+    # excepción es un borrador por un guardado fallido, para no perder lo que
+    # el líder ya había escrito.
+    borrador = session.pop("informe_borrador", None)
     pregunta = nuevo_captcha("captcha_informe2")
     return render_template("informe_express.html",
                            lider=lider,
                            existente=None,
+                           borrador=borrador,
                            timoteos=timoteos,
                            informes_semana=n_sem or 0,
                            captcha_pregunta2=pregunta,
@@ -2974,11 +3001,27 @@ def informe_guardar():
                  timoteo_id, ldata["iglesia_id"] or 1), commit=True)
         log_audit("INFORME_EXPRESS", "celulas", f"lider={lid} realizo={realizo} ip={ip}")
         session["informe_expira"] = time.time() + INFORME_SESION_SEG  # refresca ventana tras enviar
+        session.pop("informe_borrador", None)  # ya quedó guardado
         # Éxito: pantalla de confirmación con botón "Enviar otro informe".
         return redirect(url_for("informe_express", enviado=1))
     except Exception as e:
-        flash(f"Error al guardar: {e}", "error")
-        print(f"informe_guardar error: {e}")
+        # Se conserva lo que el líder ya escribió, para que no tenga que
+        # repetir el formulario (se usa al volver a /informe y se limpia al
+        # enviar con éxito). El mensaje que ve el líder es amable; el detalle
+        # técnico queda en el log y en Configuración › pestaña de errores.
+        session["informe_borrador"] = {
+            "fecha": f.get("fecha", ""),
+            "timoteo": (f.get("timoteo") or "").strip(),
+            "realizo": "1" if realizo else "0",
+            "justificacion": (f.get("justificacion") or "").strip(),
+            "asistieron": f.get("asistieron") or "",
+            "no_asistieron": f.get("no_asistieron") or "",
+            "ofrenda": f.get("ofrenda") or "",
+            "tipo_ofrenda": f.get("tipo_ofrenda") or "",
+            "modalidad": f.get("modalidad") or "",
+        }
+        flash(mensaje_error_informe(e), "error")
+        print(f"informe_guardar error: {type(e).__name__}: {e}")
         log_error_informe("INFORME_EXPRESS", lid, e,
                           f"fecha={f.get('fecha')} realizo={realizo} tipo_ofrenda={f.get('tipo_ofrenda')} ofrenda={f.get('ofrenda')} ip={ip}")
 
