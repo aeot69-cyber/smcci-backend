@@ -2386,52 +2386,48 @@ def celulas_informe_lista():
 @login_req
 @permiso_req("celulas", "crear")
 def celulas_informe_nuevo():
+    """Alta de informe interno: mismo formulario que el informe exprés que
+    cargan los líderes (más el selector de líder, que ahí lo da el código)."""
     fl, pl = filtro_igl("l")
     lideres = q(f"""SELECT l.id, h.nombre_completo FROM lideres l
         JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo{fl} ORDER BY h.nombre_completo""", tuple(pl))
-    comunas = q("SELECT id, nombre FROM comunas ORDER BY nombre")
-    modalidades = get_catalogo("catalogo_modalidad_celula")
-    reds = [x["red"] for x in q("SELECT DISTINCT red FROM lideres WHERE activo AND COALESCE(red,'')<>'' ORDER BY red")]
-    return render_template("celulas_informe_form.html", c=None, lideres=lideres, comunas=comunas, modalidades=modalidades, reds=reds)
+    return render_template("celulas_informe_form.html", c=None, lideres=lideres,
+                           modalidades=get_catalogo("catalogo_modalidad_celula"),
+                           fecha_hoy=date.today().isoformat(),
+                           ayuda_timoteo=ayuda_timoteo(None))
 
 @app.post("/celulas-informe/nuevo")
 @login_req
 @permiso_req("celulas", "crear")
 def celulas_informe_crear():
     f = request.form
-    lid = f.get("lider_id") or None
-    pid = f.get("pastor_id") or None
-    if lid and not exigir_igl("lideres", lid):
-        flash("Ese lider no es de tu iglesia", "error"); return redirect(url_for("celulas_informe_lista"))
-    if pid and not exigir_igl("lideres", pid):
-        flash("Ese pastor no es de tu iglesia", "error"); return redirect(url_for("celulas_informe_lista"))
-    # Guardia: un POST sin los datos basicos no debe registrar un informe vacio
-    if not lid or not f.get("fecha") or not f.get("mes") or not f.get("red"):
-        flash("No se registro: faltan datos obligatorios (lider, fecha, mes, red)", "error")
+    err, lid, fecha_sel, timoteo_id = _leer_informe_interno(f)
+    if err:
+        flash(err, "error"); return redirect(url_for("celulas_informe_nuevo"))
+    # Pastor, género, dirección, comuna y horario salen del líder (igual que en
+    # el informe exprés); el mes se calcula solo desde la fecha.
+    d = datos_celula_lider(lid)
+    if not d:
+        flash("No se encontró el líder elegido.", "error")
         return redirect(url_for("celulas_informe_nuevo"))
-    # Timoteo (opcional): debe estar realmente a cargo del líder elegido.
-    tid = (f.get("timoteo_id") or "").strip()
-    timoteo_id = int(tid) if tid.isdigit() else None
-    if timoteo_id is not None and timoteo_id not in [t["id"] for t in q(_SQL_TIMOTEOS, (lid, lid))]:
-        flash("Ese timoteo no está a cargo del líder elegido.", "error")
-        return redirect(url_for("celulas_informe_nuevo"))
-    cigl = iglesia_de("lideres", lid) if lid else (session.get("iglesia_id") or 1)
+    cigl = iglesia_de("lideres", lid) or session.get("iglesia_id") or 1
     try:
-        q("""INSERT INTO celulas_informe(lider_id,pastor_id,fecha,mes,red,direccion,comuna,
-            horario,realizo,justificacion,discipulos_asistieron,discipulos_no_asistieron,
-            ofrenda,tipo_ofrenda,modalidad,timoteo_id,iglesia_id)
-            VALUES(NULLIF(%s,'')::int,NULLIF(%s,'')::int,NULLIF(%s,'')::date,%s,%s,%s,%s,%s,
-            %s,%s,%s,%s,NULLIF(%s,'')::decimal,%s,%s,%s,%s)""",
-          (lid, pid, f.get("fecha"), f.get("mes"), f.get("red"),
-           f.get("direccion"), f.get("comuna"), f.get("horario"),
-           f.get("realizo") == "on", f.get("justificacion"), f.get("asistieron"),
-           f.get("no_asistieron"), f.get("ofrenda") or "0", f.get("tipo_ofrenda"),
-           f.get("modalidad"), timoteo_id, cigl), commit=True)
+        q("""INSERT INTO celulas_informe
+                (lider_id, pastor_id, fecha, mes, red, direccion, comuna, horario,
+                 realizo, justificacion, discipulos_asistieron, discipulos_no_asistieron,
+                 ofrenda, tipo_ofrenda, modalidad, timoteo_id, iglesia_id)
+             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+          (lid, d["pastor_id"], fecha_sel, MESES_ES[fecha_sel.month], d["red"],
+           d["direccion"], d["comuna"], d["horario"],
+           f.get("realizo") == "1", (f.get("justificacion") or "").strip(),
+           f.get("asistieron"), f.get("no_asistieron"),
+           f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
+           timoteo_id, cigl), commit=True)
         flash("Informe registrado", "ok")
     except Exception as e:
         flash(f"Error: {e}", "error")
         log_error_informe("ALTA_ADMIN", lid, e,
-                          f"fecha={f.get('fecha')} mes={f.get('mes')} red={f.get('red')} tipo_ofrenda={f.get('tipo_ofrenda')}")
+                          f"fecha={f.get('fecha')} tipo_ofrenda={f.get('tipo_ofrenda')} ofrenda={f.get('ofrenda')}")
     return redirect(url_for("celulas_informe_lista"))
 
 @app.get("/celulas-informe/<int:cid>/editar")
@@ -2445,46 +2441,57 @@ def celulas_informe_editar(cid):
     fl, pl = filtro_igl("l")
     lideres = q(f"""SELECT l.id, h.nombre_completo FROM lideres l
         JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo{fl} ORDER BY h.nombre_completo""", tuple(pl))
-    comunas = q("SELECT id, nombre FROM comunas ORDER BY nombre")
     modalidades = get_catalogo("catalogo_modalidad_celula")
-    reds = [x["red"] for x in q("SELECT DISTINCT red FROM lideres WHERE activo AND COALESCE(red,'')<>'' ORDER BY red")]
-    if c and c.get("red") and c["red"] not in reds:
-        reds.append(c["red"])
-    return render_template("celulas_informe_form.html", c=c, lideres=lideres, comunas=comunas, modalidades=modalidades, reds=reds)
+    # Si el informe tiene una modalidad que ya no está en el catálogo, se agrega
+    # para que al editar no cambie sola.
+    if c.get("modalidad") and not any(m["nombre"] == c["modalidad"] for m in modalidades):
+        modalidades = list(modalidades) + [{"nombre": c["modalidad"]}]
+    return render_template("celulas_informe_form.html", c=c, lideres=lideres,
+                           modalidades=modalidades,
+                           fecha_hoy=date.today().isoformat(),
+                           ayuda_timoteo=ayuda_timoteo(c.get("lider_id")))
 
 @app.post("/celulas-informe/<int:cid>/editar")
 @login_req
 @permiso_req("celulas", "editar")
 def celulas_informe_update(cid):
-    f = request.form
     if not exigir_igl("celulas_informe", cid):
         flash("Ese informe no es de tu iglesia", "error"); return redirect(url_for("celulas_informe_lista"))
-    # Guardia: un POST sin los datos basicos (p.ej. sin formulario real) NO debe vaciar el informe
-    if not f.get("lider_id") or not f.get("fecha") or not f.get("mes") or not f.get("red"):
-        flash("No se guardo: faltan datos obligatorios (lider, fecha, mes, red)", "error")
-        return redirect(url_for("celulas_informe_editar", cid=cid))
-    # Timoteo (opcional): debe estar realmente a cargo del líder elegido.
-    tid = (f.get("timoteo_id") or "").strip()
-    timoteo_id = int(tid) if tid.isdigit() else None
-    if timoteo_id is not None and timoteo_id not in [t["id"] for t in q(_SQL_TIMOTEOS, (f.get("lider_id"), f.get("lider_id")))]:
-        flash("Ese timoteo no está a cargo del líder elegido.", "error")
-        return redirect(url_for("celulas_informe_editar", cid=cid))
+    c = q("SELECT * FROM celulas_informe WHERE id=%s", (cid,), one=True)
+    if not c: abort(404)
+    f = request.form
+    err, lid, fecha_sel, timoteo_id = _leer_informe_interno(f)
+    if err:
+        flash(err, "error"); return redirect(url_for("celulas_informe_editar", cid=cid))
+    # Los datos de la célula (pastor, género, dirección, comuna y horario) se
+    # conservan como están; solo se recalculan si cambia el líder del informe.
+    if str(c.get("lider_id") or "") == str(lid):
+        pastor_id, red = c.get("pastor_id"), c.get("red")
+        direccion, comuna, horario = c.get("direccion"), c.get("comuna"), c.get("horario")
+    else:
+        d = datos_celula_lider(lid)
+        if not d:
+            flash("No se encontró el líder elegido.", "error")
+            return redirect(url_for("celulas_informe_editar", cid=cid))
+        pastor_id, red = d["pastor_id"], d["red"]
+        direccion, comuna, horario = d["direccion"], d["comuna"], d["horario"]
     try:
-        q("""UPDATE celulas_informe SET lider_id=NULLIF(%s,'')::int,pastor_id=NULLIF(%s,'')::int,
-            fecha=NULLIF(%s,'')::date,mes=%s,red=%s,direccion=%s,comuna=%s,horario=%s,
-            realizo=%s,justificacion=%s,discipulos_asistieron=%s,discipulos_no_asistieron=%s,
-            ofrenda=NULLIF(%s,'')::decimal,tipo_ofrenda=%s,modalidad=%s,timoteo_id=%s WHERE id=%s""",
-          (f.get("lider_id"), f.get("pastor_id"), f.get("fecha"), f.get("mes"), f.get("red"),
-           f.get("direccion"), f.get("comuna"), f.get("horario"),
-           f.get("realizo") == "on", f.get("justificacion"), f.get("asistieron"),
-           f.get("no_asistieron"), f.get("ofrenda") or "0", f.get("tipo_ofrenda"),
-           f.get("modalidad"), timoteo_id, cid), commit=True)
+        q("""UPDATE celulas_informe SET
+             lider_id=%s, pastor_id=%s, fecha=%s, mes=%s, red=%s, direccion=%s, comuna=%s,
+             horario=%s, realizo=%s, justificacion=%s, discipulos_asistieron=%s,
+             discipulos_no_asistieron=%s, ofrenda=%s, tipo_ofrenda=%s, modalidad=%s,
+             timoteo_id=%s
+           WHERE id=%s""",
+          (lid, pastor_id, fecha_sel, MESES_ES[fecha_sel.month], red, direccion,
+           comuna, horario, f.get("realizo") == "1", (f.get("justificacion") or "").strip(),
+           f.get("asistieron"), f.get("no_asistieron"), f.get("ofrenda") or "0",
+           f.get("tipo_ofrenda"), f.get("modalidad"), timoteo_id, cid), commit=True)
         log_audit("EDITAR","celulas", f"id={cid}")
         flash("Informe actualizado", "ok")
     except Exception as e:
         flash(f"Error: {e}", "error")
-        log_error_informe("EDICION_ADMIN", f.get("lider_id"), e,
-                          f"id={cid} fecha={f.get('fecha')} mes={f.get('mes')} tipo_ofrenda={f.get('tipo_ofrenda')}")
+        log_error_informe("EDICION_ADMIN", lid, e,
+                          f"id={cid} fecha={f.get('fecha')} tipo_ofrenda={f.get('tipo_ofrenda')}")
     return redirect(url_for("celulas_informe_lista"))
 
 @app.post("/celulas-informe/<int:cid>/eliminar")
@@ -2506,12 +2513,19 @@ def celulas_informe_eliminar(cid):
 @permiso_req("celulas", "leer")
 def celulas_informe_timoteos(lid):
     """Timoteos (discípulos/sub-líderes) de un líder, para el selector del
-    formulario interno de informe. Devuelve JSON."""
+    formulario interno de informe. Devuelve JSON: la lista, la ayuda (mismo
+    texto que ve el líder en el informe exprés) y los datos de la célula que
+    se guardarán (que salen del líder, igual que en el exprés)."""
     if not exigir_igl("lideres", lid):
         return jsonify(ok=False, error="iglesia"), 403
     rows = q(_SQL_TIMOTEOS, (lid, lid))
+    d = datos_celula_lider(lid)
     return jsonify(ok=True,
-                   timoteos=[{"id": r["id"], "nombre": r["nombre_completo"]} for r in rows])
+                   timoteos=[{"id": r["id"], "nombre": r["nombre_completo"]} for r in rows],
+                   ayuda=str(ayuda_timoteo(lid)),
+                   lider=({"nombre": d["nombre_completo"], "red": d["red"] or "",
+                           "pastor": d["pastor"] or "", "direccion": d["direccion"] or "",
+                           "comuna": d["comuna"] or ""} if d else None))
 
 # ---------- INFORME EXPRESS (público, sin login) ----------
 from datetime import date, datetime
@@ -2545,6 +2559,64 @@ _SQL_TIMOTEOS = """SELECT * FROM (
       JOIN hermanos h ON h.id=l2.hermano_id
       WHERE l2.lider_padre_id=%s AND l2.activo
 ) t ORDER BY nombre_completo"""
+
+def datos_celula_lider(lid):
+    """Datos de la célula que el informe exprés toma SOLOS del líder (pastor,
+    género/red, dirección, comuna y horario). El formulario interno de informe
+    hace lo mismo, para que lo que registra un admin sea idéntico a lo que
+    carga el líder."""
+    return q("""SELECT l.id, l.red, l.lider_padre_id AS pastor_id,
+                       (SELECT h2.nombre_completo FROM lideres l2
+                        JOIN hermanos h2 ON h2.id=l2.hermano_id
+                        WHERE l2.id=l.lider_padre_id) AS pastor,
+                       h.nombre_completo, h.direccion,
+                       c.nombre AS comuna,
+                       (SELECT ci.horario FROM celulas_informe ci
+                        WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS horario
+                FROM lideres l
+                JOIN hermanos h ON h.id=l.hermano_id
+                LEFT JOIN comunas c ON c.id=h.comuna_id
+                WHERE l.id=%s AND l.activo""", (lid,), one=True)
+
+def ayuda_timoteo(lid):
+    """Mismo texto de ayuda que ve el líder en el informe exprés (ft.1),
+    calculado para el líder elegido: cuántos timoteos tiene y cuántos informes
+    lleva esta semana ('N de 3')."""
+    if not lid:
+        return ay("celulas_informe_form.ft.0")
+    n = len(q(_SQL_TIMOTEOS, (lid, lid)))
+    hoy = date.today()
+    anio_hoy, sem_hoy, _ = hoy.isocalendar()
+    n_sem = q("""SELECT COUNT(*) AS c FROM celulas_informe
+                 WHERE lider_id=%s
+                   AND EXTRACT(YEAR FROM fecha)::int=%s
+                   AND EXTRACT(WEEK FROM fecha)::int=%s""",
+              (lid, anio_hoy, sem_hoy), one=True)["c"] or 0
+    t = ("Tienes %d a tu cargo." % n) if n else "Aún no tienes timoteos registrados a tu cargo."
+    return ay("informe_express.ft.1", timoteos=t, semana=n_sem)
+
+def _leer_informe_interno(f):
+    """Lee y valida el formulario interno de informe (mismas reglas que el
+    informe exprés). Devuelve (error, líder, fecha, timoteo_id)."""
+    lid = (f.get("lider_id") or "").strip()
+    if not lid or not f.get("fecha"):
+        return ("No se guardó: faltan datos obligatorios (líder y fecha).", None, None, None)
+    if not exigir_igl("lideres", lid):
+        return ("Ese líder no es de tu iglesia.", None, None, None)
+    try:
+        fecha_sel = date.fromisoformat(f.get("fecha", ""))
+    except Exception:
+        return ("Fecha inválida.", None, None, None)
+    if fecha_sel > date.today():
+        return ("La fecha no puede ser futura.", None, None, None)
+    # Si NO se realizó, el motivo es obligatorio (como en el exprés).
+    if f.get("realizo") != "1" and not (f.get("justificacion") or "").strip():
+        return ("Si la célula NO se realizó, debe indicar el motivo.", lid, None, None)
+    tid = (f.get("timoteo_id") or "").strip()
+    timoteo_id = int(tid) if tid.isdigit() else None
+    if timoteo_id is not None and timoteo_id not in [t["id"] for t in q(_SQL_TIMOTEOS, (lid, lid))]:
+        return ("Ese timoteo no está a cargo del líder elegido.", lid, None, None)
+    return (None, lid, fecha_sel, timoteo_id)
 
 def _limpiar_sesion_informe():
     """Borra todas las claves de sesión del informe exprés."""

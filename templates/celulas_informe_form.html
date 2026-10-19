@@ -1,159 +1,164 @@
 {% extends "base.html" %}{% block b %}
+{# Formulario interno de informe: MISMO formulario que el informe exprés que
+   cargan los líderes (mismos campos, orden, textos y ayudas). La única
+   diferencia es el selector de líder, que en el exprés lo da el código; los
+   datos de la célula (pastor, género, dirección, comuna y horario) salen solos
+   del líder, igual que en el exprés. #}
 <div class="card p-4" style="max-width:800px">
 <h4>{{'✏️ Editar' if c else '➕ Nuevo'}} Informe de Célula</h4>
-<form method="post">
-<div class="row g-3">
 
-<div class="col-md-4">
-<label class="form-label">Nombre del Líder *</label>
-<select class="form-select" name="lider_id" id="sel_lider" required onchange="cargarTimoteos()">
-<option value="">Seleccionar líder...</option>
-{% for l in lideres %}<option value="{{l.id}}" {{'selected' if c and c.lider_id==l.id}}>{{l.nombre_completo}}</option>{% endfor %}
-</select></div>
+<form method="post" id="formInforme">
 
-<div class="col-md-4">
-<label class="form-label">Timoteo (discípulo a cargo)</label>
-<select class="form-select" name="timoteo_id" id="sel_timoteo">
-<option value="">No tengo timoteo (célula propia)</option>
-</select>
-<div class="form-text" id="txt_timoteo" data-vacio="{{ ay('celulas_informe_form.ft.0') }}">{{ ay('celulas_informe_form.ft.0') }}</div>
-</div>
+  {# ========= LÍDER (solo aquí; en el exprés lo da el código) ========= #}
+  <div class="mb-3">
+    <label class="form-label fw-bold">Nombre del Líder *</label>
+    <select class="form-select" name="lider_id" id="sel_lider" required onchange="cargarTimoteos()">
+      <option value="">Seleccionar líder...</option>
+      {% for l in lideres %}<option value="{{ l.id }}" {{'selected' if c and c.lider_id==l.id}}>{{ l.nombre_completo }}</option>{% endfor %}
+    </select>
+  </div>
 
-<div class="col-md-4">
-<label class="form-label">Líder / Pastor a cargo de su célula *</label>
-<select class="form-select" name="pastor_id" required>
-<option value="">Seleccionar...</option>
-{% for l in lideres %}<option value="{{l.id}}" {{'selected' if c and c.pastor_id==l.id}}>{{l.nombre_completo}}</option>{% endfor %}
-</select></div>
+  {# Datos de la célula que se guardarán (salen del líder, como en el exprés) #}
+  <div class="alert alert-info mb-3" id="infoLider" style="display:none">
+    <strong>👋 <span id="infNombre"></span></strong><br>
+    <small id="infDetalle"></small>
+  </div>
 
-<div class="col-md-6">
-<label class="form-label">Género de la Célula *</label>
-<select class="form-select" name="red" required>
-<option value="">Seleccionar...</option>
-{% for r in reds %}<option value="{{r}}" {{'selected' if c and c.red==r}}>{{r}}</option>{% endfor %}
-</select></div>
+  {# ========= TIMOTEO (sub-líder / discípulo a cargo) ========= #}
+  <div class="mb-3">
+    <label class="form-label fw-bold">¿Quién es tu timoteo?</label>
+    <select class="form-select" name="timoteo_id" id="sel_timoteo">
+      <option value="" selected>No tengo timoteo</option>
+    </select>
+    <div class="form-text" id="txt_timoteo" data-vacio="{{ ay('celulas_informe_form.ft.0') }}">{{ ayuda_timoteo }}</div>
+  </div>
 
-<div class="col-md-3">
-<label class="form-label">Día de Célula *</label>
-<input class="form-control" type="date" name="fecha" value="{{(c.fecha or '') if c else ''}}" required></div>
+  <div class="mb-3">
+    <label class="form-label fw-bold">Fecha de la célula *</label>
+    <input class="form-control" type="date" name="fecha"
+           value="{{ c.fecha.isoformat() if c and c.fecha else fecha_hoy }}" required max="{{ fecha_hoy }}">
+    <div class="form-text">{{ ay('informe_express.ft.2') }}</div>
+  </div>
 
-<div class="col-md-3">
-<label class="form-label">Mes *</label>
-<select class="form-select" name="mes" required>
-<option value="">Seleccionar...</option>
-{% for m in ['JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'] %}
-<option value="{{m}}" {{'selected' if c and c.mes==m}}>{{m}}</option>
-{% endfor %}
-</select></div>
+  <div class="mb-3">
+    <label class="form-label fw-bold">¿Se realizó su célula esta semana? *</label>
+    <div class="d-flex gap-3">
+      <div class="form-check flex-fill">
+        <input class="form-check-input" type="radio" name="realizo" id="si" value="1" {{'checked' if c and c.realizo}} required>
+        <label class="form-check-label fw-bold text-success" for="si">✅ SÍ, se realizó</label>
+      </div>
+      <div class="form-check flex-fill">
+        <input class="form-check-input" type="radio" name="realizo" id="no" value="0" {{'checked' if c and not c.realizo}}>
+        <label class="form-check-label fw-bold text-danger" for="no">❌ NO</label>
+      </div>
+    </div>
+  </div>
 
-<div class="col-md-6">
-<label class="form-label">Dirección de su célula</label>
-<input class="form-control" name="direccion" value="{{(c.direccion or '') if c else ''}}"></div>
+  <div id="divNo" class="mb-3" style="display:{{'none' if not c or c.realizo else 'block'}};">
+    <label class="form-label" for="justificacion">Motivo (obligatorio si NO se realizó) *</label>
+    <textarea class="form-control" id="justificacion" name="justificacion" rows="2"
+              placeholder="Ej: viaje, enfermedad, evento de la iglesia...">{{ (c.justificacion or '') if c else '' }}</textarea>
+  </div>
 
-<div class="col-md-3">
-<label class="form-label">Comuna</label>
-<select class="form-select" name="comuna">
-<option value="">Seleccionar...</option>
-{% for co in comunas %}<option value="{{co.nombre}}" {{'selected' if c and c.comuna==co.nombre}}>{{co.nombre}}</option>{% endfor %}
-</select></div>
+  <hr class="my-3">
 
-<div class="col-md-3">
-<label class="form-label">Horario</label>
-<input class="form-control" name="horario" placeholder="Ej: 19:00" value="{{(c.horario or '') if c else ''}}"></div>
+  <div class="row g-3">
+    <div class="col-12">
+      <label class="form-label">Discípulos que asistieron</label>
+      <textarea class="form-control" name="asistieron" rows="2"
+                placeholder="Nombres separados por coma...">{{ (c.discipulos_asistieron or '') if c else '' }}</textarea>
+    </div>
+    <div class="col-12">
+      <label class="form-label">Discípulos que NO asistieron (nombre - motivo)</label>
+      <textarea class="form-control" name="no_asistieron" rows="2"
+                placeholder="Juan - trabajo; María - enfermedad...">{{ (c.discipulos_no_asistieron or '') if c else '' }}</textarea>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Ofrenda</label>
+      <input class="form-control" type="number" step="0.01" name="ofrenda"
+             value="{{ c.ofrenda if c and c.ofrenda is not none else '' }}" min="0" placeholder="0.00">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Tipo de ofrenda</label>
+      <select class="form-select" name="tipo_ofrenda">
+        <option value="EFECTIVO" {% if c and c.tipo_ofrenda=='EFECTIVO' %}selected{% endif %}>Efectivo</option>
+        <option value="TRANSFERENCIA" {% if c and c.tipo_ofrenda=='TRANSFERENCIA' %}selected{% endif %}>Transferencia</option>
+        <option value="AMBOS" {% if c and c.tipo_ofrenda=='AMBOS' %}selected{% endif %}>Ambos</option>
+        <option value="NO SE HACE" {% if c and c.tipo_ofrenda=='NO SE HACE' %}selected{% endif %}>No se hace</option>
+      </select>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Modalidad</label>
+      <select class="form-select" name="modalidad">
+        {% if modalidades %}
+        {% for m in modalidades %}
+        <option value="{{ m.nombre }}" {% if c and c.modalidad==m.nombre %}selected{% elif not c and loop.first %}selected{% endif %}>{{ m.nombre|capitalize }}</option>
+        {% endfor %}
+        {% else %}
+        <option value="PRESENCIAL" {% if c and c.modalidad=='PRESENCIAL' %}selected{% endif %}>Presencial</option>
+        <option value="ONLINE" {% if c and c.modalidad=='ONLINE' %}selected{% endif %}>Online</option>
+        <option value="AMBAS" {% if c and c.modalidad=='AMBAS' %}selected{% endif %}>Ambas</option>
+        {% endif %}
+      </select>
+    </div>
+  </div>
 
-<div class="col-12">
-<label class="form-label">¿Realizó su célula esta semana? *</label>
-<div class="d-flex gap-3">
-<div class="form-check">
-<input class="form-check-input" type="radio" name="realizo" id="si" value="on" {{'checked' if not c or c.realizo}} onchange="toggleJust()">
-<label class="form-check-label" for="si">SI, se realizó</label>
-</div>
-<div class="form-check">
-<input class="form-check-input" type="radio" name="realizo" id="no" value="" {{'checked' if c and not c.realizo}} onchange="toggleJust()">
-<label class="form-check-label" for="no">NO</label>
-</div></div></div>
-
-<div class="col-md-6">
-<label class="form-label">Modalidad *</label>
-<select class="form-select" name="modalidad" required>
-<option value="">Seleccionar...</option>
-{% if modalidades %}{% for m in modalidades %}<option value="{{m.nombre}}" {{'selected' if c and c.modalidad==m.nombre}}>{{m.nombre}}</option>{% endfor %}{% else %}<option value="PRESENCIAL" {{'selected' if c and c.modalidad=='PRESENCIAL'}}>PRESENCIAL</option><option value="ONLINE" {{'selected' if c and c.modalidad=='ONLINE'}}>ONLINE</option><option value="AMBAS" {{'selected' if c and c.modalidad=='AMBAS'}}>AMBAS</option>{% endif %}
-</select></div>
-
-<div class="col-12" id="div_just" style="display:{{'block' if c and not c.realizo else 'none'}}">
-<label class="form-label">Justificación de por qué NO realizó su célula esta semana</label>
-<textarea class="form-control" name="justificacion" rows="2" placeholder="Motivo por el cual no se realizó la célula...">{{(c.justificacion or '') if c else ''}}</textarea>
-</div>
-
-<div class="col-12">
-<label class="form-label">Nombre discípulos que asistieron *</label>
-<textarea class="form-control" name="asistieron" rows="3" placeholder="Nombres separados por coma..." required>{{(c.discipulos_asistieron or '') if c else ''}}</textarea>
-</div>
-
-<div class="col-12">
-<label class="form-label">Nombre y justificación de discípulos que no asistieron</label>
-<textarea class="form-control" name="no_asistieron" rows="3" placeholder="Nombre - Justificación...">{{(c.discipulos_no_asistieron or '') if c else ''}}</textarea>
-</div>
-
-<div class="col-md-6">
-<label class="form-label">Total Ofrenda Semanal *</label>
-<input class="form-control" type="number" step="0.01" name="ofrenda" value="{{c.ofrenda if c else '0'}}" required></div>
-
-<div class="col-md-6">
-<label class="form-label">Tipo de Ofrenda *</label>
-<select class="form-select" name="tipo_ofrenda" required>
-<option value="">Seleccionar...</option>
-<option value="EFECTIVO" {{'selected' if c and c.tipo_ofrenda=='EFECTIVO'}}>Efectivo</option>
-<option value="TRANSFERENCIA" {{'selected' if c and c.tipo_ofrenda=='TRANSFERENCIA'}}>Transferencia</option>
-<option value="AMBOS" {{'selected' if c and c.tipo_ofrenda=='AMBOS'}}>Ambos</option>
-<option value="NO SE HACE" {{'selected' if c and c.tipo_ofrenda=='NO SE HACE'}}>No se hace ofrenda</option>
-</select></div>
-
-</div>
-<div class="mt-3">
-<button class="btn btn-primary">💾 Guardar Informe</button>
-<a href="/celulas-informe" class="btn btn-secondary">Cancelar</a>
-</div>
+  <div class="d-grid gap-2 mt-3">
+    <button class="btn btn-primary" type="submit">💾 Guardar informe</button>
+    <button class="btn btn-outline-secondary btn-sm" type="reset">🧹 Limpiar campos</button>
+    <a href="/celulas-informe" class="btn btn-outline-secondary btn-sm">Cancelar</a>
+  </div>
 </form>
 </div>
+
 <script>
-function toggleJust(){
-    document.getElementById('div_just').style.display=document.getElementById('si').checked?'none':'block';
-}
-// Timoteo: carga los timoteos del líder elegido (mismo comportamiento que el informe exprés).
-var TIMOTEO_ACTUAL = "{{ (c.timoteo_id if c and c.timoteo_id else '') }}";
-function cargarTimoteos(){
+  // Mostrar/ocultar motivo si NO se realizó (igual que en el informe exprés).
+  var noRadio = document.getElementById('no');
+  var siRadio = document.getElementById('si');
+  var divNo = document.getElementById('divNo');
+  if (noRadio && siRadio && divNo) {
+    noRadio.addEventListener('change', function(){ divNo.style.display = 'block'; });
+    siRadio.addEventListener('change', function(){ divNo.style.display = 'none'; });
+  }
+
+  // Timoteos del líder elegido + ayuda y datos de la célula. El texto de ayuda
+  // viene del servidor (mismo texto editable que ve el líder en el exprés).
+  var TIMOTEO_ACTUAL = "{{ (c.timoteo_id if c and c.timoteo_id else '') }}";
+  function cargarTimoteos(){
     var sel = document.getElementById('sel_timoteo');
     var lid = document.getElementById('sel_lider').value;
     var txt = document.getElementById('txt_timoteo');
-    sel.innerHTML = '<option value="">No tengo timoteo (célula propia)</option>';
-    if(!lid){ txt.innerHTML = txt.getAttribute('data-vacio') || ''; return; }
-    txt.textContent = 'Cargando timoteos...';
+    var info = document.getElementById('infoLider');
+    sel.innerHTML = '<option value="">No tengo timoteo</option>';
+    if(!lid){
+      txt.innerHTML = txt.getAttribute('data-vacio') || '';
+      info.style.display = 'none';
+      return;
+    }
     fetch('/celulas-informe/timoteos/' + lid).then(function(r){ return r.json(); }).then(function(d){
-        if(d.ok){
-            (d.timoteos||[]).forEach(function(t){
-                var o = document.createElement('option');
-                o.value = t.id; o.textContent = t.nombre;
-                if(String(t.id) === String(TIMOTEO_ACTUAL)) o.selected = true;
-                sel.appendChild(o);
-            });
-            var n = (d.timoteos||[]).length;
-            txt.textContent = n ? ('Tiene ' + n + ' timoteo(s) a su cargo.') : 'Este líder no tiene timoteos registrados.';
-        } else { txt.textContent = 'No se pudo cargar la lista de timoteos.'; }
-    }).catch(function(){ txt.textContent = 'No se pudo cargar la lista de timoteos.'; });
-}
-// Mes automático desde la fecha (como en el informe exprés); se puede corregir a mano.
-var MESES = {1:'ENERO',2:'FEBRERO',3:'MARZO',4:'ABRIL',5:'MAYO',6:'JUNIO',7:'JULIO',8:'AGOSTO',9:'SEPTIEMBRE',10:'OCTUBRE',11:'NOVIEMBRE',12:'DICIEMBRE'};
-function mesDesdeFecha(){
-    var fe = document.querySelector('[name=fecha]').value;
-    var m = document.querySelector('[name=mes]');
-    if(!fe) return;
-    var mes = MESES[parseInt(fe.split('-')[1], 10)];
-    if(!mes) return;
-    for(var i=0;i<m.options.length;i++){ if(m.options[i].value===mes){ m.value = mes; break; } }
-}
-document.querySelector('[name=fecha]').addEventListener('change', mesDesdeFecha);
-// Al cargar (modo edición) carga los timoteos del líder ya elegido.
-document.addEventListener('DOMContentLoaded', function(){ cargarTimoteos(); });
+      if(!d.ok) throw new Error('no-ok');
+      (d.timoteos||[]).forEach(function(t){
+        var o = document.createElement('option');
+        o.value = t.id; o.textContent = t.nombre;
+        if(String(t.id) === String(TIMOTEO_ACTUAL)) o.selected = true;
+        sel.appendChild(o);
+      });
+      if(d.ayuda) txt.innerHTML = d.ayuda;
+      if(d.lider){
+        document.getElementById('infNombre').textContent = d.lider.nombre;
+        var partes = [];
+        if(d.lider.red) partes.push('Célula: ' + d.lider.red);
+        if(d.lider.pastor) partes.push('Pastor: ' + d.lider.pastor);
+        var dir = [d.lider.direccion, d.lider.comuna].filter(function(x){ return x; }).join(', ');
+        if(dir) partes.push(dir);
+        document.getElementById('infDetalle').textContent = partes.join(' · ');
+        info.style.display = 'block';
+      }
+    }).catch(function(){
+      txt.textContent = 'No se pudo cargar la lista de timoteos.';
+    });
+  }
+  // Al cargar (modo edición) carga los timoteos del líder ya elegido.
+  document.addEventListener('DOMContentLoaded', cargarTimoteos);
 </script>
 {% endblock %}
