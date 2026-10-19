@@ -340,6 +340,138 @@ def generar_clave_temporal():
     resto = secrets.choice(string.ascii_lowercase)
     return f"{mayus}{minus}{numero}{signo}{resto}"
 
+# =====================================================================
+#  AYUDAS / HELP EDITABLES  (solo SUPERADMIN las cambia en Configuración)
+#  · Los textos por defecto viven en las plantillas (se escanean 1 vez).
+#  · La tabla `ayudas` guarda SOLO los cambios hechos desde Configuración;
+#    si no hay cambio, se usa el texto original de la plantilla.
+#  · Formato de edición: texto plano.  **negrita**  ·  \n = salto
+#    Los bloques ❓Ayuda son una viñeta por línea  "Etiqueta: texto".
+# =====================================================================
+from markupsafe import Markup, escape as _esc
+from ayudas_defecto import AYUDAS_DEFECTO, AYUDAS_DINAMICO
+
+_ay_cat = None   # catálogo de ayudas (una sola vez por proceso)
+
+def _ay_dir():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
+
+def escanear_ayudas():
+    """Catálogo de ayudas: clave -> {plantilla,tipo,defecto,viñetas,dinamico}.
+    Los textos por defecto vienen de ayudas_defecto.py (snapshot generado desde
+    las plantillas originales); los cambios hechos en ⚙️ Configuración viven en
+    la tabla `ayudas` y tienen prioridad."""
+    global _ay_cat
+    if _ay_cat is not None:
+        return _ay_cat
+    cat = {}
+    for clave, defecto in AYUDAS_DEFECTO.items():
+        base, _, resto = clave.partition(".")
+        es_bloque = resto.startswith("ayuda")
+        cat[clave] = {
+            "plantilla": base + ".html",
+            "tipo": "bloque" if es_bloque else "campo",
+            "defecto": defecto,
+            "viñetas": len([l for l in defecto.split("\n") if l.strip()]) if es_bloque else 0,
+            "dinamico": AYUDAS_DINAMICO.get(clave, ""),
+        }
+    _ay_cat = cat
+    return cat
+
+def _ay_ovrs():
+    """Cambios guardados en BD (se leen por request para verlos al instante en todas las instancias)."""
+    from flask import g
+    if not hasattr(g, "_ayudas_ovr"):
+        try:
+            g._ayudas_ovr = {r["clave"]: r["texto"] for r in q("SELECT clave, texto FROM ayudas")}
+        except Exception:
+            g._ayudas_ovr = {}
+    return g._ayudas_ovr
+
+def inval_ayudas():
+    """Fuerza releer los cambios (se llama al guardar)."""
+    from flask import g
+    g._ayudas_ovr = None
+
+def _ay_texto(clave):
+    o = _ay_ovrs()
+    if clave in o:
+        return o[clave]
+    return escanear_ayudas().get(clave, {}).get("defecto", "")
+
+def _render_ay(txt, **ctx):
+    s = str(_esc(txt or ""))                       # escapa HTML (el texto es de SUPERADMIN)
+    for k, v in ctx.items():                       # tokens {semana}, {timoteos}, ...
+        s = s.replace("{%s}" % k, str(_esc(str(v))))
+    s = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', s, flags=re.S)   # **negrita**
+    return Markup(s.replace("\n", "<br>\n"))       # salto de línea
+
+def ay(clave, **ctx):
+    """Ayuda de un campo (form-text)."""
+    return _render_ay(_ay_texto(clave), **ctx)
+
+def ayuda_li(clave, **ctx):
+    """Bloque ❓Ayuda: cada línea del texto es una viñeta 'Etiqueta: texto'."""
+    out = []
+    for ln in _ay_texto(clave).split("\n"):
+        ln = ln.strip()
+        if not ln:
+            continue
+        m = re.match(r'^([^:*(){}\[\]→]{1,40}?):\s+(.+)$', ln)
+        if m:
+            out.append('<li><b>%s:</b> %s</li>' % (str(_esc(m.group(1))), _render_ay(m.group(2), **ctx)))
+        else:
+            out.append("<li>%s</li>" % _render_ay(ln, **ctx))
+    return Markup("".join(out))
+
+def guardar_ayudas(f, accion):
+    """Guarda o restaura las ayudas editadas en ⚙️ Configuración (solo SUPERADMIN).
+    Texto igual al original -> se borra el cambio y queda el valor por defecto."""
+    if session.get("rol") != "SUPERADMIN":
+        flash("Solo SUPERADMIN puede modificar las ayudas del sistema.", "error")
+        return redirect(url_for("configuracion"))
+    pagina = (f.get("pagina") or "").strip()
+    pref = pagina[:-5] if pagina.endswith(".html") else pagina
+    cat = escanear_ayudas()
+    claves = [k for k in cat if k.split(".")[0] == pref]
+    if not claves:
+        flash("Página de ayuda no reconocida.", "error")
+        return redirect(url_for("configuracion") + "#ayudas")
+    if accion == "restaurar":
+        try:
+            n = q("DELETE FROM ayudas WHERE clave LIKE %s", (pref + ".%",), commit=True)
+            flash(f"Ayudas de «{pagina}» restauradas a sus valores originales ({n}).", "success")
+        except Exception as e:
+            flash(f"No se pudieron restaurar las ayudas: {e}", "error")
+    else:
+        guard, rest = 0, 0
+        for k in claves:
+            if ("t__" + k) not in f:
+                continue
+            txt = (f.get("t__" + k) or "").replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+            try:
+                if txt.strip() == cat[k]["defecto"].strip():
+                    q("DELETE FROM ayudas WHERE clave=%s", (k,), commit=True)
+                    rest += 1
+                else:
+                    q("""INSERT INTO ayudas (clave, texto, actualizado_en, actualizado_por)
+                         VALUES (%s, %s, now(), %s)
+                         ON CONFLICT (clave) DO UPDATE SET texto = EXCLUDED.texto,
+                             actualizado_en = now(), actualizado_por = EXCLUDED.actualizado_por""",
+                      (k, txt, session.get("username") or session.get("user") or ""), commit=True)
+                    guard += 1
+            except Exception as e:
+                flash(f"Error al guardar «{k}»: {e}", "error")
+        flash(f"Ayudas guardadas: {guard} modificada(s) · {rest} en su valor original.", "success")
+    try:
+        inval_ayudas()
+    except Exception:
+        pass
+    return redirect(url_for("configuracion") + "#ayudas")
+
+app.jinja_env.globals["ay"] = ay
+app.jinja_env.globals["ayuda_li"] = ayuda_li
+
 @app.context_processor
 def inject_permisos():
     rol = session.get("rol", "")
@@ -3217,7 +3349,33 @@ def configuracion():
             FROM auditoria a LEFT JOIN iglesias i ON i.id=a.iglesia_id
             WHERE a.accion='ERROR_GUARDADO' AND a.modulo='celulas'
             ORDER BY a.created_at DESC LIMIT 100""")
-    return render_template("configuracion.html", catalogos=cats, usuarios=users, perm_all=perm_all, user_perms=user_perms, roles=obtener_roles(), modulos=MODULOS_INFO, lideres=lideres, iglesias_cfg=igls_cfg, errores_informes=errores_informes)
+    # ---- Ayudas / help editables (solo SUPERADMIN) ----
+    ayudas_cfg = []
+    if session.get("rol") == "SUPERADMIN":
+        ovr = _ay_ovrs()
+        paginas = {}
+        for clave, d in escanear_ayudas().items():
+            defecto = d["defecto"]
+            if d["tipo"] == "bloque":
+                titulo = "❓ Ayuda de la página"
+            else:
+                primera = re.split(r'[\n.]', defecto)[0][:55].strip()
+                titulo = f"📝 Ayuda de campo — «{primera}…»"
+            paginas.setdefault(d["plantilla"], []).append({
+                "clave": clave, "tipo": d["tipo"], "titulo": titulo,
+                "texto": ovr.get(clave, defecto), "defecto": defecto,
+                "es_custom": clave in ovr, "vinetas": d["viñetas"],
+                "dinamico": d["dinamico"],
+            })
+        for pag in sorted(paginas):
+            items = sorted(paginas[pag], key=lambda x: 0 if x["tipo"] == "bloque" else 1)
+            ayudas_cfg.append({
+                "plantilla": pag, "nombre": pag[:-5].replace("_", " ").title(),
+                "ayudas": items,
+                "custom": sum(1 for i in items if i["es_custom"]),
+                "vinetas": sum(i["vinetas"] for i in items),
+            })
+    return render_template("configuracion.html", catalogos=cats, usuarios=users, perm_all=perm_all, user_perms=user_perms, roles=obtener_roles(), modulos=MODULOS_INFO, lideres=lideres, iglesias_cfg=igls_cfg, errores_informes=errores_informes, ayudas_cfg=ayudas_cfg)
 
 @app.post("/configuracion")
 @login_req
@@ -3230,6 +3388,10 @@ def configuracion_accion():
     nombre = f.get("nombre","").strip()
     codigo = f.get("codigo","").strip()
     orden = f.get("orden")
+
+    # ---- Ayudas / help editables (solo SUPERADMIN) ----
+    if tabla == "__ayudas__":
+        return guardar_ayudas(f, accion)
 
     try:
         if tabla == "__usuarios__":

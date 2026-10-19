@@ -1,11 +1,6 @@
 {% extends "base.html" %}{% block b %}
 <div class="card p-3"><h4>👋 Visitas <small class="text-muted">Consultar / Modificar — solo van al culto</small> <span class="badge bg-primary ms-2">{{rows|length}} visitas</span></h4>
-<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
-<li><b>Visita:</b> persona invitada que solo vino al culto. No es hermano aún.</li>
-<li><b>Código:</b> se genera automático al integrar (MCCIxxxx).</li>
-<li><b>Motivo de oración:</b> por qué pedir. Obligatorio.</li>
-<li><b>Responsable:</b> solo líderes del desplegable, no texto libre.</li>
-<li><b>Integrar:</b> elige líder destino → crea al HERMANO con código y lo asigna a su CÉLULA, la visita pasa a INTEGRADO.</li></ul></details>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">{{ ayuda_li('visitas.ayuda') }}</ul></details>
 <form class="row g-2 mb-2" method="get"><div class="col"><input class="form-control" name="q" value="{{texto}}" placeholder="Buscar por nombre..."></div>
 <div class="col-md-3"><select class="form-select" name="fest" onchange="this.form.submit()"><option value="">Todos los estados</option>
 {% if estados_visita %}{% for ev in estados_visita %}<option {% if fest==ev.nombre %}selected{% endif %}>{{ev.nombre}}</option>{% endfor %}{% else %}<option {% if fest=='PENDIENTE' %}selected{% endif %}>PENDIENTE</option><option {% if fest=='EN SEGUIMIENTO' %}selected{% endif %}>EN SEGUIMIENTO</option><option {% if fest=='INTEGRADO' %}selected{% endif %}>INTEGRADO</option><option {% if fest=='NO VOLVIO' %}selected{% endif %}>NO VOLVIO</option>{% endif %}</select></div>

@@ -1,15 +1,7 @@
 {% extends "base.html" %}{% block b %}
 <div class="card p-3 mb-3">
 <h4>⚙️ Usuarios y Permisos <small class="text-muted">Gestión de accesos</small></h4>
-<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
-<li><b>Crear usuario:</b> asigna usuario, contraseña y rol. La contraseña debe tener: 8+ caracteres, mayúscula, minúscula, número y signo. El nuevo usuario deberá cambiar su contraseña al primer ingreso.</li>
-<li><b>Rol SUPERADMIN:</b> acceso total a todo el sistema incluyendo gestión de usuarios.</li>
-<li><b>Rol ADMIN:</b> puede crear/editar usuarios pero NO asignar rol SUPERADMIN.</li>
-<li><b>Rol CONSULTA:</b> solo puede consultar y exportar. No modifica datos.</li>
-<li><b>Vincular a líder:</b> relaciona el usuario con un líder del sistema para identificación interna.</li>
-<li><b>Permisos:</b> marca las casillas para definir qué puede hacer cada rol en cada módulo del sistema.</li>
-<li><b>🔒 Bloquear:</b> desactiva el usuario sin eliminarlo. P/reactivar con 🔓.</li>
-<li><b>Recuperar contraseña:</b> desde el login se envía una clave temporal al correo del líder vinculado al usuario. Si no tiene líder o correo, contactar al administrador.</li></ul></details>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">{{ ayuda_li('usuarios.ayuda') }}</ul></details>
 </div>
 
 <div class="d-flex justify-content-between align-items-center mb-3">

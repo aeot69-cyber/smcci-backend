@@ -1,11 +1,6 @@
 {% extends "base.html" %}{% block b %}
 <div class="card p-3"><h4>⛪ Iglesias <small class="text-muted">Configuración global (SUPERADMIN)</small> <span class="badge bg-primary ms-2">{{rows|length}}</span></h4>
-<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
-<li><b>Tipos:</b> MATRIZ = casa matriz · HIJA = iglesia hija · GRUPO = grupo de crecimiento.</li>
-<li><b>Padre:</b> a quién reporta (un GRUPO depende de una HIJA o de la MATRIZ; una HIJA depende de la MATRIZ).</li>
-<li><b>Conversión:</b> un GRUPO puede convertirse en IGLESIA HIJA con el botón 🏛️ (solo SUPERADMIN): conserva todos sus datos y configuración; después se le asigna su ADMIN_HIJA en Usuarios.</li>
-<li><b>Códigos:</b> cada iglesia numera sus hermanos con su prefijo (ej. NOR0001); el prefijo es único en todo el sistema y se define/edita con ✏️.</li>
-<li>Los usuarios ADMIN_HIJA / ADMIN_GRUPO se crean en 👤 Usuarios eligiendo su iglesia.</li></ul></details>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">{{ ayuda_li('iglesias.ayuda') }}</ul></details>
 <a class="btn btn-success mb-2" href="/iglesias/nuevo">➕ Nueva iglesia</a>
 <div style="overflow-x:auto"><table class="table table-striped"><tr>
 <th>ID</th><th>Nombre</th><th>Tipo</th><th>Cód.</th><th>Reporta a</th><th>Descripción</th><th>Creada</th><th>Hermanos</th><th>Líderes</th><th>Usuarios</th><th>Estado</th><th></th></tr>

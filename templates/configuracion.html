@@ -9,9 +9,53 @@
 <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#usuarios">👥 Usuarios</a></li>
 {% if rol in ['SUPERADMIN', 'ADMIN'] %}<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#codigos_lideres">🔐 Códigos Líderes</a></li>{% endif %}
 {% if rol in ['SUPERADMIN', 'ADMIN'] %}<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#errores_informes">⚠️ Errores Informes</a></li>{% endif %}
+{% if ayudas_cfg %}<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#ayudas">❓ Ayudas</a></li>{% endif %}
 </ul>
 
 <div class="tab-content mt-3">
+
+{% if ayudas_cfg %}
+<div class="tab-pane fade" id="ayudas">
+<h5>❓ Ayudas del sistema</h5>
+<p class="text-muted">Editá los textos de ayuda que ven los usuarios. Las guarda <b>solo SUPERADMIN</b> y se aplican al instante en todas las páginas.
+<b>Formato:</b> texto plano · una viñeta por línea <code>Etiqueta: texto</code> · <code>**negrita**</code> para destacar · Enter = salto de línea.
+Si guardás el texto <b>igual al original</b>, se quita el cambio y queda el valor por defecto.</p>
+<div class="mb-3"><input class="form-control" id="buscarAyuda" placeholder="🔍 Filtrar por página o por el contenido de una ayuda..." oninput="filtrarAyudas()"></div>
+
+{% for p in ayudas_cfg %}
+<div class="card mb-2 ayuda-pag" data-buscar="{{ p.nombre|lower }} {{ p.plantilla|lower }} {% for a in p.ayudas %}{{ a.texto|lower }} {% endfor %}">
+<div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-1">
+  <strong>📄 {{ p.nombre }}</strong>
+  <span class="small text-muted">{{ p.ayudas|length }} ayuda(s){% if p.vinetas %} · {{ p.vinetas }} viñetas{% endif %}{% if p.custom %} <span class="badge bg-warning text-dark">{{ p.custom }} modificada(s)</span>{% endif %}</span>
+</div>
+<div class="card-body">
+<form method="post">
+  <input type="hidden" name="catalogo" value="__ayudas__">
+  <input type="hidden" name="pagina" value="{{ p.plantilla }}">
+  {% for a in p.ayudas %}
+  <div class="mb-2">
+    <label class="form-label small mb-0 fw-bold">
+      {{ a.titulo }}
+      {% if a.tipo == 'bloque' %}<span class="text-muted fw-normal">(una viñeta por línea: <code>Etiqueta: texto</code>)</span>{% endif %}
+      {% if a.dinamico %}<span class="badge bg-info text-dark" title="{{ a.dinamico }}">datos dinámicos</span>{% endif %}
+      {% if a.es_custom %}<span class="badge bg-warning text-dark">modificada</span>{% endif %}
+    </label>
+    <textarea class="form-control" name="t__{{ a.clave }}" rows="{% if a.tipo == 'bloque' %}{{ a.vinetas }}{% else %}2{% endif %}">{{ a.texto }}</textarea>
+    {% if a.dinamico %}<div class="form-text">Tokens disponibles (no los borres si querés conservar el dato): <code>{{ a.dinamico }}</code></div>{% endif %}
+    {% if a.es_custom %}<div class="form-text">Original: <code>{{ a.defecto[:150] }}{% if a.defecto|length > 150 %}…{% endif %}</code></div>{% endif %}
+  </div>
+  {% endfor %}
+  <div class="d-flex gap-2 flex-wrap">
+    <button type="submit" name="accion" value="guardar" class="btn btn-primary btn-sm">💾 Guardar ayudas de esta página</button>
+    <button type="submit" name="accion" value="restaurar" class="btn btn-outline-secondary btn-sm"
+            onclick="return confirm('¿Restaurar TODAS las ayudas de «{{ p.nombre }}» a sus valores originales?')">↩️ Restaurar por defecto</button>
+  </div>
+</form>
+</div>
+</div>
+{% endfor %}
+</div>
+{% endif %}
 
 {% for cat in catalogos %}
 <div class="tab-pane fade" id="{{cat.key}}">
@@ -485,5 +529,21 @@ function editarIcono(tabla, id, actual) {
         document.body.appendChild(f); f.submit();
     }
 }
+<script>
+// Filtra las tarjetas de ayudas por página o por contenido
+function filtrarAyudas(){
+  var q = (document.getElementById('buscarAyuda').value || '').toLowerCase().trim();
+  document.querySelectorAll('.ayuda-pag').forEach(function(c){
+    var txt = c.getAttribute('data-buscar') || '';
+    c.style.display = (!q || txt.indexOf(q) >= 0) ? '' : 'none';
+  });
+}
+// Activa la pestaña que indique el # de la URL (ej. tras guardar: /configuracion#ayudas)
+document.addEventListener('DOMContentLoaded', function(){
+  var h = location.hash;
+  if(!h) return;
+  var a = document.querySelector('#configTabs a[href="' + h + '"]');
+  if(a) a.click();
+});
 </script>
 {% endblock %}

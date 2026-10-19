@@ -1,10 +1,5 @@
 {% extends "base.html" %}{% block b %}<h2>Gráficos</h2>
-<details class="alert alert-info"><summary><b>Ayuda</b></summary><ul class="mb-0">
-<li><b>Rango:</b> Desde/Hasta recalcula los 9 gráficos (por defecto: últimos 3 meses completos).</li>
-<li><b>Mostrar valores:</b> la casilla superior enciende/apaga la cifra sobre cada barra y línea y dentro de los círculos (para verificar que los datos son correctos).</li>
-<li><b>Tipos:</b> barras = comparación · líneas = evolución mensual · circular = participación en informes · anillo = composición de discípulos.</li>
-<li><b>Visitas</b> (los 2 gráficos de visitas) está vacío hoy: se irán llenando poco a poco por red y mes / estado a medida que se registren visitas nuevas.</li>
-<li>Sin datos en el rango elegido → aparece "Sin datos en el período seleccionado".</li></ul></details>
+<details class="alert alert-info"><summary><b>Ayuda</b></summary><ul class="mb-0">{{ ayuda_li('graficos.ayuda') }}</ul></details>
 <form class="row g-2 mb-3 align-items-end" method="get">
 <div class="col-auto"><label class="col-form-label">Desde</label><input class="form-control" type="date" name="desde" value="{{desde}}"></div>
 <div class="col-auto"><label class="col-form-label">Hasta</label><input class="form-control" type="date" name="hasta" value="{{hasta}}"></div>

@@ -1,10 +1,6 @@
 {% extends "base.html" %}{% block b %}
 <div class="card p-3"><h4>📋 Informe Semanal de Célula</h4>
-<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
-<li><b>Líder:</b> seleccionar de la lista (viene de la BD).</li>
-<li><b>Líder/Pastor a cargo:</b> también de la BD (puede ser un macro de otra célula).</li>
-<li><b>Realizó:</b> marcar SI si se realizó la célula esta semana.</li>
-<li><b>Sin informe:</b> muestra líderes con célula activa que aún no reportaron este mes.</li></ul></details>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">{{ ayuda_li('celulas_informe.ayuda') }}</ul></details>
 <form class="row g-2 mb-3" method="get">
 <div class="col"><input class="form-control" name="q" placeholder="Buscar líder..."></div>
 <div class="col-auto"><button class="btn btn-primary">🔍 Consultar</button>

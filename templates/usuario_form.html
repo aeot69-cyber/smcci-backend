@@ -1,12 +1,7 @@
 {% extends "base.html" %}{% block b %}
 <div class="card p-3 mb-3" style="max-width:500px">
 <h5>{{'Editar' if u else 'Nuevo'}} Usuario</h5>
-<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
-<li><b>Usuario:</b> nombre único para ingresar al sistema. No se puede cambiar después de creado.</li>
-<li><b>Contraseña:</b> mínimo 8 caracteres, 1 mayúscula, 1 minúscula, 1 número y 1 signo (!@#$%^&*). Al crear nuevo usuario, será obligatorio cambiarla al primer ingreso.</li>
-<li><b>Rol:</b> define los permisos del usuario. ADMIN no puede crear SUPERADMIN.</li>
-<li><b>Vincular a líder:</b> relaciona este usuario con un líder del sistema para identificación.</li>
-<li><b>Activo:</b> si está desmarcado, el usuario no podrá ingresar al sistema.</li></ul></details>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">{{ ayuda_li('usuario_form.ayuda') }}</ul></details>
 </div>
 <div class="card p-4" style="max-width:500px">
 <form method="post">

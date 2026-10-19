@@ -16,7 +16,7 @@
 <select class="form-select" name="timoteo_id" id="sel_timoteo">
 <option value="">No tengo timoteo (célula propia)</option>
 </select>
-<div class="form-text" id="txt_timoteo">Selecciona el líder para ver sus timoteos.</div>
+<div class="form-text" id="txt_timoteo" data-vacio="{{ ay('celulas_informe_form.ft.0') }}">{{ ay('celulas_informe_form.ft.0') }}</div>
 </div>
 
 <div class="col-md-4">
@@ -127,7 +127,7 @@ function cargarTimoteos(){
     var lid = document.getElementById('sel_lider').value;
     var txt = document.getElementById('txt_timoteo');
     sel.innerHTML = '<option value="">No tengo timoteo (célula propia)</option>';
-    if(!lid){ txt.textContent = 'Selecciona el líder para ver sus timoteos.'; return; }
+    if(!lid){ txt.innerHTML = txt.getAttribute('data-vacio') || ''; return; }
     txt.textContent = 'Cargando timoteos...';
     fetch('/celulas-informe/timoteos/' + lid).then(function(r){ return r.json(); }).then(function(d){
         if(d.ok){

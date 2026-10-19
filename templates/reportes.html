@@ -1,9 +1,5 @@
 {% extends "base.html" %}{% block b %}<h2>Reportes y consultas</h2>
-<details class="alert alert-info"><summary><b>Ayuda</b></summary><ul class="mb-0">
-<li><b>Ver:</b> elige TODOS o uno separado. <b>Excel/PDF del elegido</b> exporta solo ese.</li>
-<li><b>Resumen por Lider:</b> una fila por lider con Celulas hijas + Macrocélulas + Total discipulos + encuentros aprobados por etapa + fila TOTAL.</li>
-<li><b>Total discipulos:</b> discipulos activos del lider · <b>Celulas hijas:</b> sub-lideres bajo su mando (jerarquia padre->hijo) · <b>Macro:</b> macrocélulas a cargo (se carga en Lideres).</li>
-<li><b>Enc.Lider:</b> aprobados del propio lider · <b>Tremendo/Fruto/Reenc/Crec/Lid:</b> discipulos activos con esa etapa aprobada.</li></ul></details>
+<details class="alert alert-info"><summary><b>Ayuda</b></summary><ul class="mb-0">{{ ayuda_li('reportes.ayuda') }}</ul></details>
 <form class="row g-2 mb-3" method="get"><input type="hidden" name="lider" value="{{lider_sel or ''}}"><div class="col-md-4"><select class="form-select" name="ver" onchange="this.form.submit()" title="Elige ver todos o uno separado">
 <option value="todos" {% if ver=='todos' %}selected{% endif %}>Ver TODOS</option>
 <option value="resumen" {% if ver=='resumen' %}selected{% endif %}>Resumen por Lider (unico + total)</option>

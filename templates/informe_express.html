@@ -19,7 +19,7 @@
         <label class="form-label">Tu código de líder (6 dígitos)</label>
         <input class="form-control text-center" type="text" name="codigo" inputmode="numeric"
                pattern="\d{6}" maxlength="6" placeholder="123456" required autocomplete="off">
-        <div class="form-text">Lo recibiste por WhatsApp o en tu tarjeta.</div>
+        <div class="form-text">{{ ay('informe_express.ft.0') }}</div>
       </div>
 
       {# Captcha matemático #}
@@ -61,17 +61,13 @@
           <option value="" selected>No tengo timoteo</option>
           {% for t in timoteos %}<option value="{{ t.id }}">{{ t.nombre_completo }}</option>{% endfor %}
         </select>
-        <div class="form-text">
-          Elige tu timoteo (discípulo o sub-líder a cargo); el informe es siempre del líder; si no tienes, deja <b>"No tengo timoteo"</b>.
-          {% if timoteos %}Tienes {{ timoteos|length }} a tu cargo.{% else %}Aún no tienes timoteos registrados a tu cargo.{% endif %}
-          <br><b>Puedes enviar hasta 3 informes por semana.</b> Con timoteo, usa uno distinto por informe; sin timoteo, elige una <b>fecha distinta</b> para cada uno. Para corregir el informe, repite la <b>misma fecha y el mismo timoteo</b>. Esta semana llevas <b>{{ informes_semana }} de 3</b>.
-        </div>
+        <div class="form-text">{{ ay('informe_express.ft.1', timoteos=('Tienes ' ~ (timoteos|length) ~ ' a tu cargo.') if timoteos else 'Aún no tienes timoteos registrados a tu cargo.', semana=informes_semana) }}</div>
       </div>
 
       <div class="mb-3">
         <label class="form-label fw-bold">Fecha de la célula *</label>
         <input class="form-control" type="date" name="fecha" value="{{ fecha_hoy }}" required max="{{ fecha_hoy }}">
-        <div class="form-text">Seleccione la semana que informa (hoy como máximo). El mes se calcula solo.</div>
+        <div class="form-text">{{ ay('informe_express.ft.2') }}</div>
       </div>
 
       <div class="mb-3">

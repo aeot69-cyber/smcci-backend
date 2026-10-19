@@ -1,9 +1,6 @@
 {% extends "base.html" %}{% block b %}
 <h2>🔔 Seguimiento diario — hermanos + visitas</h2>
-<details class="alert alert-info"><summary><b>❓ Ayuda: módulos relacionados</b></summary><ul class="mb-0">
-<li><b>Hermanos sin célula</b> (de Hermanos/Discipulado) y <b>Visitas</b> (del culto, con motivo de oración) comparten esta bandeja: una sola lista <b>Total</b>.</li>
-<li><b>Registrar en visita</b> la pasa automáticamente a EN SEGUIMIENTO y queda en su historial.</li>
-<li><b>Responsable:</b> solo líderes (selector, no texto libre).</li></ul></details>
+<details class="alert alert-info"><summary><b>❓ Ayuda: módulos relacionados</b></summary><ul class="mb-0">{{ ayuda_li('seguimiento.ayuda') }}</ul></details>
 <p><a class="btn btn-success btn-sm" href="/seguimiento?export=excel" target="_blank">Excel total</a> <a class="btn btn-danger btn-sm" href="/seguimiento?export=pdf" target="_blank">PDF total</a></p>
 <div class="card p-3 mb-3"><h5>📋 Total relacionado ({{total|length}}: hermanos + visitas)</h5>
 <table class="table table-striped"><tr><th>Tipo</th><th>Nombre</th><th>Teléfono</th><th>Invitó</th><th>Último seg.</th></tr>

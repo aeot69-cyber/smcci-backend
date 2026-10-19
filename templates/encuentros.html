@@ -1,10 +1,6 @@
 {% extends "base.html" %}{% block b %}
 <div class="card p-3 mb-3"><h4>🔥 Encuentros <small class="text-muted">Consultar / Modificar</small></h4>
-<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">
-<li><b>Etapa:</b> ENCUENTRO TREMENDO → FRUTO FIEL → REENCUENTRO → ESCUELA CRECIMIENTO → ESCUELA LIDERES (orden del proceso).</li>
-<li><b>Estado:</b> APROBADO = completó · PENDIENTE = falta · NO ASISTE/REPROBADO.</li>
-<li><b>Ruta espiritual:</b> 1 = aprobado, 0 = pendiente por cada etapa.</li>
-<li><b>Registrar de nuevo</b> la misma etapa actualiza su estado (no duplica).</li></ul></details>
+<details class="alert alert-info"><summary><b>❓ Ayuda</b></summary><ul class="mb-0">{{ ayuda_li('encuentros.ayuda') }}</ul></details>
 <form class="row g-2 mb-2" method="get"><div class="col"><input class="form-control" name="q" value="{{texto}}" placeholder="Buscar hermano..." title="Filtra por nombre"></div>
 <div class="col-md-3"><select class="form-select" name="fest" onchange="this.form.submit()" title="Filtra por estado"><option value="">Todos los estados</option>
 <option {% if fest=='APROBADO' %}selected{% endif %}>APROBADO</option><option {% if fest=='PENDIENTE' %}selected{% endif %}>PENDIENTE</option><option {% if fest=='REPROBADO' %}selected{% endif %}>REPROBADO</option><option {% if fest=='NO ASISTE' %}selected{% endif %}>NO ASISTE</option></select></div>
