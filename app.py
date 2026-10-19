@@ -1745,6 +1745,11 @@ def lider_nuevo():
     }
     return render_template("lider_form.html", libres=libres, todos_lideres=todos, l=None, catalogos_l=catalogos_l)
 
+# Roles que el sistema trata como pastorales. IMPORTANTE: incluye el femenino
+# PASTORA. Antes solo 'PASTOR' activaba es_pastor, así que las 10 pastoras
+# tenían es_pastor=false y NO aparecían en el reporte "Informe Célula · Por Pastor".
+_ROLES_PASTORALES = ("PASTOR", "PASTORA")
+
 @app.post("/lideres/nuevo")
 @login_req
 @permiso_req("lideres", "crear")
@@ -1762,7 +1767,7 @@ def lider_crear():
         rol = f.get("rol") or "NINGUNO"
         q("INSERT INTO lideres(hermano_id,red,estado_celula,info_enviada,cantidad_celulas,cantidad_macrocelulas,observacion,es_pastor,rol_lider,tipo_12,lider_padre_id,iglesia_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
           (hid, f["red"], f["estado"], f["info"], int(f.get("celulas") or 1), int(f.get("macro") or 0), f.get("obs"),
-           rol == "PASTOR", rol, f.get("tipo12", "NINGUNO"), padre, igl), commit=True)
+           rol in _ROLES_PASTORALES, rol, f.get("tipo12", "NINGUNO"), padre, igl), commit=True)
         log_audit("CREAR","lideres", f"hermano={f.get('hermano')} rol={rol}")
         flash("Líder creado", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
@@ -1794,7 +1799,7 @@ def lider_estado(lid):
             "cantidad_macrocelulas": int(f.get("macro") or act["cantidad_macrocelulas"] or 0),
             "red": f.get("red") or act["red"],
             "rol_lider": rol,
-            "es_pastor": rol == "PASTOR",
+            "es_pastor": rol in _ROLES_PASTORALES,
             "tipo_12": f.get("tipo12") or act["tipo_12"],
         })
         # Actualizar padre por separado para permitir NULL
@@ -1807,7 +1812,7 @@ def lider_estado(lid):
             "cantidad_macrocelulas": int(f.get("macro") or act["cantidad_macrocelulas"] or 0),
             "red": f.get("red") or act["red"],
             "rol_lider": rol,
-            "es_pastor": rol == "PASTOR",
+            "es_pastor": rol in _ROLES_PASTORALES,
             "tipo_12": f.get("tipo12") or act["tipo_12"],
         })
     log_audit("EDITAR","lideres", f"id={lid} rol={rol}")
@@ -2560,23 +2565,72 @@ _SQL_TIMOTEOS = """SELECT * FROM (
       WHERE l2.lider_padre_id=%s AND l2.activo
 ) t ORDER BY nombre_completo"""
 
+# Pastor REAL de un líder: sube la cadena de líder_padre_id hasta encontrar una
+# PASTORA / PASTOR / APOSTOL. Antes solo se miraba el padre directo, así que un
+# líder que estuviera bajo otro líder (y no bajo un pastor) no aparecía en el
+# reporte "Informe Célula · Por Pastor" (se perdían 26 de los 48 informes).
+_SQL_PASTOR_DE = """
+WITH RECURSIVE subo AS (
+    SELECT l.id AS lider_id, l.lider_padre_id AS anc_id, 1 AS nivel, ARRAY[l.id] AS ruta
+    FROM lideres l
+  UNION ALL
+    SELECT s.lider_id, p.lider_padre_id, s.nivel + 1, s.ruta || p.id
+    FROM subo s JOIN lideres p ON p.id = s.anc_id
+    WHERE s.nivel < 20 AND NOT p.id = ANY(s.ruta)
+), candidatos AS (
+    -- el pastor más cercano por la cadena de líder_padre_id
+    (SELECT DISTINCT ON (s.lider_id) s.lider_id, s.anc_id AS pastor_id, 0 AS prioridad
+     FROM subo s
+     JOIN lideres pp ON pp.id = s.anc_id
+     WHERE s.anc_id IS NOT NULL
+       AND (pp.es_pastor OR pp.rol_lider IN ('APOSTOL','PASTOR','PASTORA'))
+     ORDER BY s.lider_id, s.nivel)
+  UNION ALL
+    -- pastor/a sin nadie arriba (los apóstoles): su propia célula queda bajo
+    -- su nombre, para que ningún informe quede fuera del reporte "Por Pastor"
+    (SELECT l.id, l.id, 1
+     FROM lideres l
+     WHERE (l.es_pastor OR l.rol_lider IN ('APOSTOL','PASTOR','PASTORA'))
+       AND NOT EXISTS (
+         SELECT 1 FROM subo s2
+         WHERE s2.lider_id = l.id AND s2.anc_id IS NOT NULL
+           AND EXISTS (SELECT 1 FROM lideres pp WHERE pp.id = s2.anc_id
+                       AND (pp.es_pastor OR pp.rol_lider IN ('APOSTOL','PASTOR','PASTORA')))
+       ))
+), pastor_de AS (
+    SELECT DISTINCT ON (lider_id) lider_id, pastor_id
+    FROM candidatos ORDER BY lider_id, prioridad
+)"""
+
+def pastor_de_lider(lid):
+    """Id del pastor real de un líder (None si no tiene ninguno arriba)."""
+    if not lid:
+        return None
+    r = q(_SQL_PASTOR_DE + "SELECT pastor_id FROM pastor_de WHERE lider_id=%s", (lid,), one=True)
+    return r["pastor_id"] if r else None
+
 def datos_celula_lider(lid):
     """Datos de la célula que el informe exprés toma SOLOS del líder (pastor,
     género/red, dirección, comuna y horario). El formulario interno de informe
     hace lo mismo, para que lo que registra un admin sea idéntico a lo que
-    carga el líder."""
-    return q("""SELECT l.id, l.red, l.lider_padre_id AS pastor_id,
-                       (SELECT h2.nombre_completo FROM lideres l2
-                        JOIN hermanos h2 ON h2.id=l2.hermano_id
-                        WHERE l2.id=l.lider_padre_id) AS pastor,
-                       h.nombre_completo, h.direccion,
-                       c.nombre AS comuna,
-                       (SELECT ci.horario FROM celulas_informe ci
-                        WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS horario
-                FROM lideres l
-                JOIN hermanos h ON h.id=l.hermano_id
-                LEFT JOIN comunas c ON c.id=h.comuna_id
-                WHERE l.id=%s AND l.activo""", (lid,), one=True)
+    carga el líder. El pastor es el REAL (sube la cadena de líderes)."""
+    d = q("""SELECT l.id, l.red, h.nombre_completo, h.direccion,
+                    c.nombre AS comuna,
+                    (SELECT ci.horario FROM celulas_informe ci
+                     WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS horario
+             FROM lideres l
+             JOIN hermanos h ON h.id=l.hermano_id
+             LEFT JOIN comunas c ON c.id=h.comuna_id
+             WHERE l.id=%s AND l.activo""", (lid,), one=True)
+    if not d:
+        return None
+    d["pastor_id"] = pastor_de_lider(lid)
+    d["pastor"] = ""
+    if d["pastor_id"]:
+        pn = q("""SELECT h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
+                  WHERE l.id=%s""", (d["pastor_id"],), one=True)
+        d["pastor"] = pn["nombre_completo"] if pn else ""
+    return d
 
 def ayuda_timoteo(lid):
     """Mismo texto de ayuda que ve el líder en el informe exprés (ft.1),
@@ -2668,11 +2722,10 @@ def informe_codigo():
         return redirect(url_for("informe_express"))
 
     # 3) Buscar líder por código (+ último informe para horario/modalidad)
-    lider = q("""SELECT l.id, h.nombre_completo, l.red, l.iglesia_id,
+    # El pastor que se muestra es el REAL: sube la cadena de líder_padre_id.
+    lider = q(_SQL_PASTOR_DE + """SELECT l.id, h.nombre_completo, l.red, l.iglesia_id,
                        i.nombre AS iglesia_nombre, COALESCE(i.activo,true) AS iglesia_activa,
-                       (SELECT h2.nombre_completo FROM lideres l2
-                        JOIN hermanos h2 ON h2.id=l2.hermano_id
-                        WHERE l2.id=l.lider_padre_id) AS pastor_nombre,
+                       hp.nombre_completo AS pastor_nombre,
                        h.direccion,
                        c.nombre AS comuna,
                        (SELECT ci.horario FROM celulas_informe ci
@@ -2683,6 +2736,9 @@ def informe_codigo():
                 JOIN hermanos h ON h.id=l.hermano_id
                 LEFT JOIN comunas c ON c.id=h.comuna_id
                 LEFT JOIN iglesias i ON i.id=l.iglesia_id
+                LEFT JOIN pastor_de pd ON pd.lider_id = l.id
+                LEFT JOIN lideres lp ON lp.id = pd.pastor_id
+                LEFT JOIN hermanos hp ON hp.id = lp.hermano_id
                 WHERE l.codigo_informe=%s AND l.activo""", (codigo,), one=True)
 
     if not lider:
@@ -2744,12 +2800,11 @@ def _mostrar_formulario_informe():
     if not lid:
         return redirect(url_for("informe_express"))
 
-    # Datos fijos del líder (para precargar)
-    lider = q("""SELECT l.id, h.nombre_completo AS nombre, l.red, l.iglesia_id,
+    # Datos fijos del líder (para precargar). El pastor que se muestra es el
+    # REAL: sube la cadena de líder_padre_id hasta una PASTORA / PASTOR / APOSTOL.
+    lider = q(_SQL_PASTOR_DE + """SELECT l.id, h.nombre_completo AS nombre, l.red, l.iglesia_id,
                        i.nombre AS iglesia_nombre,
-                       (SELECT h2.nombre_completo FROM lideres l2
-                        JOIN hermanos h2 ON h2.id=l2.hermano_id
-                        WHERE l2.id=l.lider_padre_id) AS pastor,
+                       hp.nombre_completo AS pastor,
                        h.direccion,
                        c.nombre AS comuna,
                        (SELECT ci.horario FROM celulas_informe ci
@@ -2760,6 +2815,9 @@ def _mostrar_formulario_informe():
                 JOIN hermanos h ON h.id=l.hermano_id
                 LEFT JOIN comunas c ON c.id=h.comuna_id
                 LEFT JOIN iglesias i ON i.id=l.iglesia_id
+                LEFT JOIN pastor_de pd ON pd.lider_id = l.id
+                LEFT JOIN lideres lp ON lp.id = pd.pastor_id
+                LEFT JOIN hermanos hp ON hp.id = lp.hermano_id
                 WHERE l.id=%s AND l.activo""", (lid,), one=True)
     if not lider:
         session.pop("informe_lider_id", None)
@@ -2875,7 +2933,8 @@ def informe_guardar():
                   "error")
             return redirect(url_for("informe_express"))
 
-    # Datos del líder para pastor_id, red, etc.
+    # Datos del líder para pastor_id, red, etc. El pastor es el REAL (sube la
+    # cadena de líder_padre_id hasta una PASTORA / PASTOR / APOSTOL).
     ldata = q("""SELECT l.lider_padre_id, l.red, l.iglesia_id,
                        h.direccion,
                        c.nombre AS comuna,
@@ -2887,6 +2946,7 @@ def informe_guardar():
                 JOIN hermanos h ON h.id=l.hermano_id
                 LEFT JOIN comunas c ON c.id=h.comuna_id
                 WHERE l.id=%s""", (lid,), one=True)
+    ldata["pastor_id"] = pastor_de_lider(lid)
 
     try:
         if existente:
@@ -2896,7 +2956,7 @@ def informe_guardar():
                      discipulos_no_asistieron=%s, ofrenda=%s, tipo_ofrenda=%s, modalidad=%s,
                      timoteo_id=%s
                  WHERE id=%s""",
-                (ldata["lider_padre_id"], mes_sel, ldata["red"], ldata["direccion"],
+                (ldata["pastor_id"], mes_sel, ldata["red"], ldata["direccion"],
                  ldata["comuna"], ldata["horario"], realizo, justificacion,
                  f.get("asistieron"), f.get("no_asistieron"),
                  f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
@@ -2907,7 +2967,7 @@ def informe_guardar():
                      realizo, justificacion, discipulos_asistieron, discipulos_no_asistieron,
                      ofrenda, tipo_ofrenda, modalidad, timoteo_id, iglesia_id)
                  VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (lid, ldata["lider_padre_id"], fecha_sel, mes_sel,
+                (lid, ldata["pastor_id"], fecha_sel, mes_sel,
                  ldata["red"], ldata["direccion"], ldata["comuna"], ldata["horario"],
                  realizo, justificacion, f.get("asistieron"), f.get("no_asistieron"),
                  f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
@@ -2958,7 +3018,9 @@ def reportes():
         WHERE d.fecha_fin IS NULL{fl} GROUP BY 1 ORDER BY 2 DESC""", tuple(pl))
     r["por_12"] = q(f"SELECT tipo_12, COUNT(*) AS c, SUM(CASE WHEN es_pastor THEN 1 ELSE 0 END) AS pastores FROM lideres WHERE activo{f0} GROUP BY 1 ORDER BY 2 DESC", tuple(p0))
     # NUEVO: Resumen de Informes de Célula por líder, pastor y red
-    r["celulas_resumen"] = q(f"""
+    # (el pastor es el REAL: sube la cadena de líder_padre_id hasta una
+    #  PASTORA / PASTOR / APOSTOL, no solo el padre directo)
+    r["celulas_resumen"] = q(f"""{_SQL_PASTOR_DE}
         SELECT 
             l.id AS lider_id,
             h.nombre_completo AS lider,
@@ -2972,15 +3034,17 @@ def reportes():
             MAX(ci.created_at) AS ultimo_registro
         FROM lideres l
         JOIN hermanos h ON h.id = l.hermano_id
-        LEFT JOIN lideres lp ON lp.id = l.lider_padre_id
+        LEFT JOIN pastor_de pd ON pd.lider_id = l.id
+        LEFT JOIN lideres lp ON lp.id = pd.pastor_id
         LEFT JOIN hermanos hp ON hp.id = lp.hermano_id
         LEFT JOIN celulas_informe ci ON ci.lider_id = l.id
         WHERE l.activo{fl}
         GROUP BY l.id, h.nombre_completo, l.red, hp.nombre_completo
         ORDER BY l.red, h.nombre_completo
     """, tuple(pl))
-    # Resumen agrupado por pastor (es_pastor=true O rol_lider='APOSTOL')
-    r["celulas_por_pastor"] = q(f"""
+    # Resumen agrupado por pastor (es_pastor=true O rol pastoral: APOSTOL / PASTOR / PASTORA),
+    # subiendo la cadena de líder_padre_id si el líder está bajo otro líder.
+    r["celulas_por_pastor"] = q(f"""{_SQL_PASTOR_DE}
         SELECT 
             hp.nombre_completo AS pastor,
             lp.red AS red_pastor,
@@ -2991,11 +3055,11 @@ def reportes():
             COALESCE(SUM(ci.ofrenda), 0) AS total_ofrenda
         FROM lideres l
         JOIN hermanos h ON h.id = l.hermano_id
-        LEFT JOIN lideres lp ON lp.id = l.lider_padre_id 
-            AND (lp.es_pastor OR lp.rol_lider = 'APOSTOL')
-        LEFT JOIN hermanos hp ON hp.id = lp.hermano_id
+        JOIN pastor_de pd ON pd.lider_id = l.id
+        JOIN lideres lp ON lp.id = pd.pastor_id
+        JOIN hermanos hp ON hp.id = lp.hermano_id
         LEFT JOIN celulas_informe ci ON ci.lider_id = l.id
-        WHERE l.activo AND lp.id IS NOT NULL{fl}
+        WHERE l.activo{fl}
         GROUP BY hp.nombre_completo, lp.red
         ORDER BY hp.nombre_completo
     """, tuple(pl))
@@ -3060,11 +3124,13 @@ def reportes():
     r["lider_info"] = None
     r["lider_detalle"] = []
     if ver == "lider_detalle" and lider_sel:
-        r["lider_info"] = q(f"""SELECT l.id, h.nombre_completo, l.red, l.estado_celula,
+        r["lider_info"] = q(f"""{_SQL_PASTOR_DE}
+            SELECT l.id, h.nombre_completo, l.red, l.estado_celula,
             COALESCE(hp.nombre_completo,'SIN PASTOR') AS pastor
             FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
-            LEFT JOIN lideres lp ON lp.id=l.lider_padre_id
-            LEFT JOIN hermanos hp ON hp.id=lp.hermano_id
+            LEFT JOIN pastor_de pd ON pd.lider_id = l.id
+            LEFT JOIN lideres lp ON lp.id = pd.pastor_id
+            LEFT JOIN hermanos hp ON hp.id = lp.hermano_id
             WHERE l.id=%s{fl}""", tuple([lider_sel]) + tuple(pl), one=True)
         if r["lider_info"]:
             r["lider_detalle"] = q("""SELECT ci.fecha, ci.mes, ci.red, ci.realizo, ci.justificacion,
