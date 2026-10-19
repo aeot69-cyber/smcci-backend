@@ -2,6 +2,7 @@
 import os
 import time
 import random
+import secrets
 from functools import wraps
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -38,7 +39,18 @@ def enviar_email(destinatario, asunto, cuerpo_html):
     except Exception as e:
         print(f"Error enviando email: {e}")
         return False
-app.secret_key = os.environ.get("SECRET_KEY", "cambiar-en-produccion")
+# La sesión de Flask es un cookie firmado con esta clave: con un valor por
+# defecto fijo y público (como tenía antes) cualquiera podría fabricar una
+# sesión válida, p. ej. SUPERADMIN, y tomar el sistema. Si falta la variable se
+# genera una clave aleatoria: la sesión se cierra en cada reinicio, pero nadie
+# puede falsificarla. Configure SECRET_KEY en el entorno para evitar los
+# reinicios de sesión en cada despliegue.
+_SECRET_KEY = os.environ.get("SECRET_KEY", "").strip()
+if not _SECRET_KEY:
+    _SECRET_KEY = secrets.token_hex(32)
+    print("AVISO DE SEGURIDAD: falta SECRET_KEY en el entorno; se usó una clave "
+          "efímera (las sesiones se cierran al reiniciar). Configure SECRET_KEY.")
+app.secret_key = _SECRET_KEY
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("FLASK_ENV") == "production", PERMANENT_SESSION_LIFETIME=3600)
 
@@ -96,15 +108,15 @@ def db():
         except Exception as e:
             last_err = e
             print(f"DB_* connect failed: {e}")
-    # 3) Fallback Render externo
-    try:
-        conn = psycopg2.connect(host="dpg-dakpu9ifngtc73a581mg-a.oregon-postgres.render.com", port=5432, dbname="iglesia_mcci", user="mcci", password="s8hzb0HSgPVpdX1NgEYzUgQBTKikCy8J", cursor_factory=RealDictCursor, connect_timeout=5)
-        try: g._db_conn = conn
-        except RuntimeError: pass
-        return conn
-    except Exception as e:
-        print(f"Fallback Render connect failed: {e}, last_err={last_err}")
-        raise
+    # 3) Sin entorno configurado: NO hay fallback con credenciales guardadas en
+    #    el código. Antes había un tercer intento contra una base vieja con la
+    #    contraseña escrita en el fuente: eso compromete los datos de la iglesia
+    #    para cualquiera que vea el repositorio. Mejor fallar con claridad.
+    raise RuntimeError(
+        "No hay base de datos configurada. Defina DATABASE_URL (o DB_HOST/DB_USER/"
+        "DB_PASSWORD/DB_NAME/DB_PORT) en el entorno del servidor."
+        + (f" Último error de conexión: {last_err}" if last_err else "")
+    )
 
 @app.teardown_appcontext
 def close_db(exc):
