@@ -23,3 +23,7 @@ CREATE TABLE IF NOT EXISTS celulas_informe (
     boucher_url TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- Índice de las consultas de informe por líder («¿ya existe este informe en la
+-- fecha?», contadores de la semana y última célula). Idempotente.
+CREATE INDEX IF NOT EXISTS idx_celulas_informe_lider_fecha ON celulas_informe(lider_id, fecha);

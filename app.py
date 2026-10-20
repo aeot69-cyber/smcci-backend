@@ -193,7 +193,7 @@ def get_catalogo(tabla, incluir_inactivos=False, iglesia="sesion"):
 
 # Mapeo catálogo → (tabla_afectada, columna, valor_por_defecto) para fallback al eliminar
 CATALOGO_FALLBACK = {
-    "catalogo_redes":             [("lideres", "red", "MIXTO")],
+    "catalogo_redes":             [("lideres", "red", "MIXTO"), ("celulas_informe", "red", "MIXTO")],
     "catalogo_tipo12":            [("lideres", "tipo_12", "NINGUNO")],
     "catalogo_roles_lider":       [("lideres", "rol_lider", "NINGUNO")],
     "catalogo_estado_civil":      [("hermanos", "estado_civil", None)],
@@ -205,6 +205,14 @@ CATALOGO_FALLBACK = {
     "catalogo_tipo_hermano":      [("hermanos", "tipo_hermano", "NINGUNO")],
     "catalogo_modalidad_celula":  [("celulas_informe", "modalidad", "PRESENCIAL")],
     "catalogo_roles_usuario":     [("usuarios", "rol", "CONSULTA")],
+}
+
+# Catálogos SIN tabla de respaldo: dónde se usan sus valores. Si siguen en uso NO
+# se borran (se avisa en Configuración); los de arriba, en cambio, repuntan solos.
+# (tipos_encuentro y periodicidad_celula no aparecen aquí porque su "eliminar"
+#  solo desactiva la fila, nunca la borra.)
+CATALOGO_EN_USO = {
+    "catalogo_meses":             [("celulas_informe", "mes")],
 }
 
 def login_req(fn=None, *, roles=None):
@@ -883,6 +891,23 @@ def chequear_form_seguro(clave):
     return None, None
 
 # ---------- AUTH ----------
+def _iniciar_sesion(row, username, fuente):
+    """Arranca la sesión de una cuenta ya autenticada.
+
+    Único camino de login: lo comparten /login y /api/login para que ambos
+    dejen la misma sesión (uid, rol y nombre de usuario), el mismo
+    ultimo_login y la misma fila LOGIN de la auditoría."""
+    session["uid"], session["rol"], session["user"] = row["id"], row["rol"], username
+    session["username"] = username
+    session["iglesia_id"] = row["iglesia_id"] or 1
+    session["iglesia_nombre"] = row["iglesia_nombre"] or "CASA MATRIZ"
+    if row["rol"] == "SUPERADMIN":
+        session["ver_todo"] = True
+    else:
+        session.pop("ver_todo", None)
+    q("UPDATE usuarios SET ultimo_login=now() WHERE id=%s", (row["id"],), commit=True)
+    log_audit("LOGIN", "usuarios", f"login {username} ({fuente})")
+
 @app.get("/login")
 def login():
     pregunta = nuevo_captcha("captcha_login")
@@ -919,15 +944,7 @@ def login_post():
     if row["rol"] != "SUPERADMIN" and row.get("iglesia_activa") is False:
         flash("Tu iglesia esta desactivada (fuera de operacion). Contacta a casa matriz.", "error")
         return redirect(url_for("login"))
-    session["uid"], session["rol"], session["user"] = row["id"], row["rol"], u
-    session["iglesia_id"] = row["iglesia_id"] or 1
-    session["iglesia_nombre"] = row["iglesia_nombre"] or "CASA MATRIZ"
-    if row["rol"] == "SUPERADMIN":
-        session["ver_todo"] = True
-    else:
-        session.pop("ver_todo", None)
-    q("UPDATE usuarios SET ultimo_login=now() WHERE id=%s", (row["id"],), commit=True)
-    log_audit("LOGIN", "usuarios", f"login {u}")
+    _iniciar_sesion(row, u, "web")
     if row.get("primer_login"):
         flash("Es su primer ingreso. Debe cambiar su contraseña.", "ok")
         return redirect(url_for("cambiar_clave"))
@@ -986,6 +1003,7 @@ def cambiar_clave_post():
         return redirect(url_for("cambiar_clave"))
     q("UPDATE usuarios SET password_hash=%s, primer_login=FALSE WHERE id=%s",
       (generate_password_hash(nueva), session["uid"]), commit=True)
+    log_audit("CAMBIAR_CLAVE", "usuarios", f"uid={session['uid']}")
     flash("Contraseña actualizada correctamente", "ok")
     return redirect(url_for("index"))
 
@@ -3003,6 +3021,14 @@ def _mostrar_formulario_informe():
         flash("Sesión expirada. Ingrese su código nuevamente.", "error")
         return redirect(url_for("informe_express"))
 
+    # Coherencia de sesión: el líder tiene que seguir siendo el de la iglesia que se
+    # registró al validar el código (si cambió de iglesia o la sesión se alteró, se
+    # empieza de cero con el código). Antes este valor se guardaba y nunca se miraba.
+    if (lider.get("iglesia_id") or 1) != (session.get("informe_iglesia_id") or 1):
+        _limpiar_sesion_informe()
+        flash("Sesión no válida. Ingrese su código de líder nuevamente.", "error")
+        return redirect(url_for("informe_express"))
+
     # Timoteos disponibles (discípulos activos + sub-líderes) y cuántos informes
     # se han enviado esta semana (para mostrar "N de 3").
     timoteos = q(_SQL_TIMOTEOS, (lid, lid))
@@ -3128,6 +3154,13 @@ def informe_guardar():
                 JOIN hermanos h ON h.id=l.hermano_id
                 LEFT JOIN comunas c ON c.id=h.comuna_id
                 WHERE l.id=%s""", (lid,), one=True)
+    if not ldata or (ldata.get("iglesia_id") or 1) != (session.get("informe_iglesia_id") or 1):
+        # El líder ya no existe (borrado/desactivado a mitad de sesión) o dejó de
+        # pertenecer a la iglesia con la que se abrió: se corta con un aviso amable
+        # (antes esto reventaba con TypeError fuera del try -> error 500).
+        _limpiar_sesion_informe()
+        flash("Tu líder ya no está disponible. Ingresa tu código de líder nuevamente.", "error")
+        return redirect(url_for("informe_express"))
     ldata["pastor_id"] = pastor_de_lider(lid)
 
     try:
@@ -3530,13 +3563,7 @@ def api_login():
     if row["rol"] != "SUPERADMIN" and row.get("iglesia_activa") is False:
         abort(403)
     registrar_intento(u, ip, True, "api")
-    session["uid"], session["rol"] = row["id"], row["rol"]
-    session["iglesia_id"] = row["iglesia_id"] or 1
-    session["iglesia_nombre"] = row["iglesia_nombre"] or "CASA MATRIZ"
-    if row["rol"] == "SUPERADMIN":
-        session["ver_todo"] = True
-    else:
-        session.pop("ver_todo", None)
+    _iniciar_sesion(row, u, "api")     # misma sesión/auditoría que /login
     return {"ok": True, "rol": row["rol"]}
 
 @app.get("/api/lideres")
@@ -3733,87 +3760,117 @@ def configuracion_accion():
 
     try:
         if tabla == "__usuarios__":
+            # ---- Permisos por ACCIÓN ----
+            # La ruta solo exige usuarios.editar; crear y eliminar se piden aparte,
+            # igual que en /usuarios/nuevo y /usuarios/<id>/eliminar, y NADIE gestiona
+            # cuentas de rol igual o superior al suyo (jerarquía C3).
+            _rol_mio = session.get("rol", "")
+            _uid_mio = session.get("uid")
+
             if accion == "crear_usuario":
-                username = f.get("username","").strip()
-                password = f.get("password","").strip()
-                rol = f.get("rol","CONSULTA")
-                vinculo_id = f.get("vinculo_id")
-                if not username or not password:
-                    flash("Usuario y contraseña requeridos", "error")
+                if not tiene_permiso(_rol_mio, "usuarios", "crear", _uid_mio):
+                    flash("No tiene permiso para crear usuarios", "error")
                 else:
-                    from werkzeug.security import generate_password_hash
-                    lider_id = int(vinculo_id) if vinculo_id else None
-                    if lider_id and not exigir_igl("lideres", lider_id):
-                        flash("Ese lider no es de tu iglesia", "error")
-                    elif rol == "SUPERADMIN" and session.get("rol") != "SUPERADMIN":
-                        flash("No puede crear SUPERADMIN", "error")
-                    elif q("SELECT id FROM usuarios WHERE username=%s", (username,), one=True):
-                        flash(f"El nombre '{username}' ya esta en uso (unico global). Prueba con otro.", "error")
+                    username = f.get("username","").strip()
+                    password = f.get("password","").strip()
+                    rol = f.get("rol","CONSULTA")
+                    vinculo_id = f.get("vinculo_id")
+                    if not username or not password:
+                        flash("Usuario y contraseña requeridos", "error")
                     else:
-                        hermano_id = None
-                        if lider_id:
-                            ex = q("SELECT hermano_id FROM lideres WHERE id=%s", (lider_id,), one=True)
-                            if ex: hermano_id = ex["hermano_id"]
-                        if session.get("rol") == "SUPERADMIN" and f.get("iglesia_id"):
-                            igl_n = int(f.get("iglesia_id"))
+                        from werkzeug.security import generate_password_hash
+                        lider_id = int(vinculo_id) if vinculo_id else None
+                        err_clave = validar_clave(password)
+                        if lider_id and not exigir_igl("lideres", lider_id):
+                            flash("Ese lider no es de tu iglesia", "error")
+                        elif not puede_asignar_rol(rol):
+                            flash("No puede crear usuarios con un rol igual o superior al suyo", "error")
+                        elif err_clave:
+                            flash(f"La contraseña no cumple: {', '.join(err_clave)}", "error")
+                        elif q("SELECT id FROM usuarios WHERE username=%s", (username,), one=True):
+                            flash(f"El nombre '{username}' ya esta en uso (unico global). Prueba con otro.", "error")
                         else:
-                            igl_n = session.get("iglesia_id") or 1
-                        q("INSERT INTO usuarios (username,password_hash,rol,hermano_id,lider_id,iglesia_id) VALUES (%s,%s,%s,%s,%s,%s)",
-                          (username, generate_password_hash(password), rol, hermano_id, lider_id, igl_n), commit=True)
-                        flash(f"Usuario '{username}' creado", "ok")
+                            hermano_id = None
+                            if lider_id:
+                                ex = q("SELECT hermano_id FROM lideres WHERE id=%s", (lider_id,), one=True)
+                                if ex: hermano_id = ex["hermano_id"]
+                            if session.get("rol") == "SUPERADMIN" and f.get("iglesia_id"):
+                                igl_n = int(f.get("iglesia_id"))
+                            else:
+                                igl_n = session.get("iglesia_id") or 1
+                            q("INSERT INTO usuarios (username,password_hash,rol,hermano_id,lider_id,iglesia_id) VALUES (%s,%s,%s,%s,%s,%s)",
+                              (username, generate_password_hash(password), rol, hermano_id, lider_id, igl_n), commit=True)
+                            flash(f"Usuario '{username}' creado", "ok")
 
             elif accion == "toggle_usuario" and item_id:
                 if not exigir_igl("usuarios", item_id):
                     flash("Ese usuario no es de tu iglesia", "error")
                 else:
-                    q("UPDATE usuarios SET activo = NOT activo WHERE id=%s", (item_id,), commit=True)
-                    flash("Estado actualizado", "ok")
+                    _obj = q("SELECT rol FROM usuarios WHERE id=%s", (item_id,), one=True)
+                    if not _obj or not puede_gestionar_rol(_obj["rol"], item_id):
+                        flash("No puede modificar una cuenta con igual o mayor privilegio que la suya", "error")
+                    else:
+                        q("UPDATE usuarios SET activo = NOT activo WHERE id=%s", (item_id,), commit=True)
+                        flash("Estado actualizado", "ok")
 
             elif accion == "eliminar_usuario" and item_id:
-                if not exigir_igl("usuarios", item_id):
+                if not tiene_permiso(_rol_mio, "usuarios", "eliminar", _uid_mio):
+                    flash("No tiene permiso para eliminar usuarios", "error")
+                elif not exigir_igl("usuarios", item_id):
                     flash("Ese usuario no es de tu iglesia", "error")
                 else:
-                    q("DELETE FROM usuarios WHERE id=%s", (item_id,), commit=True)
-                    log_audit("ELIMINAR","usuarios", f"id={item_id}")
-                    flash("Usuario eliminado", "ok")
+                    _obj = q("SELECT rol FROM usuarios WHERE id=%s", (item_id,), one=True)
+                    if not _obj or not puede_gestionar_rol(_obj["rol"], item_id):
+                        flash("No puede eliminar una cuenta con igual o mayor privilegio que la suya", "error")
+                    else:
+                        q("DELETE FROM usuarios WHERE id=%s", (item_id,), commit=True)
+                        log_audit("ELIMINAR","usuarios", f"id={item_id}")
+                        flash("Usuario eliminado", "ok")
 
             elif accion == "editar_usuario" and item_id:
                 if not exigir_igl("usuarios", item_id):
                     flash("Ese usuario no es de tu iglesia", "error")
                 else:
+                    _obj = q("SELECT rol FROM usuarios WHERE id=%s", (item_id,), one=True)
                     nuevo_rol = f.get("nuevo_rol")
                     nuevo_vinculo = f.get("nuevo_vinculo")
-                    if nuevo_rol == "SUPERADMIN" and session.get("rol") != "SUPERADMIN":
+                    if not _obj or not puede_gestionar_rol(_obj["rol"], item_id):
+                        flash("No puede editar una cuenta con igual o mayor privilegio que la suya", "error")
+                    elif nuevo_rol and not puede_asignar_rol(nuevo_rol):
+                        flash("No puede asignar un rol igual o superior al suyo", "error")
+                    elif nuevo_rol == "SUPERADMIN" and session.get("rol") != "SUPERADMIN":
                         flash("Solo SUPERADMIN asigna rol SUPERADMIN", "error")
-                        nuevo_rol = None
-                    updates = []
-                    params = []
-                    if nuevo_rol:
-                        updates.append("rol=%s")
-                        params.append(nuevo_rol)
-                    if nuevo_vinculo is not None:
-                        lid = int(nuevo_vinculo) if nuevo_vinculo else None
-                        hid = None
-                        if lid and not exigir_igl("lideres", lid):
-                            flash("Ese lider no es de tu iglesia", "error")
-                            lid = None
-                        if lid:
-                            ex = q("SELECT hermano_id FROM lideres WHERE id=%s", (lid,), one=True)
-                            if ex: hid = ex["hermano_id"]
-                        updates.append("lider_id=%s")
-                        params.append(lid)
-                        updates.append("hermano_id=%s")
-                        params.append(hid)
-                    if updates:
-                        params.append(item_id)
-                        q(f"UPDATE usuarios SET {','.join(updates)} WHERE id=%s", tuple(params), commit=True)
-                        log_audit("EDITAR","usuarios", f"id={item_id}")
-                        flash("Usuario actualizado", "ok")
+                    else:
+                        updates = []
+                        params = []
+                        if nuevo_rol:
+                            updates.append("rol=%s")
+                            params.append(nuevo_rol)
+                        if nuevo_vinculo is not None:
+                            lid = int(nuevo_vinculo) if nuevo_vinculo else None
+                            hid = None
+                            if lid and not exigir_igl("lideres", lid):
+                                flash("Ese lider no es de tu iglesia", "error")
+                                lid = None
+                            if lid:
+                                ex = q("SELECT hermano_id FROM lideres WHERE id=%s", (lid,), one=True)
+                                if ex: hid = ex["hermano_id"]
+                            updates.append("lider_id=%s")
+                            params.append(lid)
+                            updates.append("hermano_id=%s")
+                            params.append(hid)
+                        if updates:
+                            params.append(item_id)
+                            q(f"UPDATE usuarios SET {','.join(updates)} WHERE id=%s", tuple(params), commit=True)
+                            log_audit("EDITAR","usuarios", f"id={item_id}")
+                            flash("Usuario actualizado", "ok")
 
             elif accion == "guardar_permisos" and item_id:
                 user_rol = f.get("user_rol","")
                 if user_rol == "SUPERADMIN":
                     flash("No se pueden editar permisos de SUPERADMIN", "error")
+                elif not puede_gestionar_rol(user_rol):
+                    flash("No puede editar la matriz de permisos de un rol igual o superior al suyo", "error")
                 else:
                     # Alcance: SUPERADMIN en TODAS edita global; el resto, su iglesia
                     igl_s, _ = iglesia_actual()
@@ -3834,35 +3891,43 @@ def configuracion_accion():
                 if not exigir_igl("usuarios", item_id):
                     flash("Ese usuario no es de tu iglesia", "error")
                 else:
-                    user_id = item_id
-                    q("DELETE FROM usuario_permisos WHERE usuario_id=%s", (user_id,), commit=True)
-                    for mod in MODULOS_INFO:
-                        leer = f"uperm_{mod['key']}_leer" in f
-                        crear = f"uperm_{mod['key']}_crear" in f
-                        editar = f"uperm_{mod['key']}_editar" in f
-                        eliminar = f"uperm_{mod['key']}_eliminar" in f
-                        exportar = f"uperm_{mod['key']}_exportar" in f
-                        if leer or crear or editar or eliminar or exportar:
-                            q("INSERT INTO usuario_permisos (usuario_id,modulo,puede_leer,puede_crear,puede_editar,puede_eliminar,puede_exportar) VALUES(%s,%s,%s,%s,%s,%s,%s)",
-                              (user_id, mod["key"], leer, crear, editar, eliminar, exportar), commit=True)
-                    flash("Permisos individuales actualizados", "ok")
+                    _obj = q("SELECT rol FROM usuarios WHERE id=%s", (item_id,), one=True)
+                    if not _obj or not puede_gestionar_rol(_obj["rol"], item_id):
+                        flash("No puede dar permisos a una cuenta con igual o mayor privilegio que la suya", "error")
+                    else:
+                        user_id = item_id
+                        q("DELETE FROM usuario_permisos WHERE usuario_id=%s", (user_id,), commit=True)
+                        for mod in MODULOS_INFO:
+                            leer = f"uperm_{mod['key']}_leer" in f
+                            crear = f"uperm_{mod['key']}_crear" in f
+                            editar = f"uperm_{mod['key']}_editar" in f
+                            eliminar = f"uperm_{mod['key']}_eliminar" in f
+                            exportar = f"uperm_{mod['key']}_exportar" in f
+                            if leer or crear or editar or eliminar or exportar:
+                                q("INSERT INTO usuario_permisos (usuario_id,modulo,puede_leer,puede_crear,puede_editar,puede_eliminar,puede_exportar) VALUES(%s,%s,%s,%s,%s,%s,%s)",
+                                  (user_id, mod["key"], leer, crear, editar, eliminar, exportar), commit=True)
+                        flash("Permisos individuales actualizados", "ok")
 
             elif accion == "reset_clave" and item_id:
                 if not exigir_igl("usuarios", item_id):
                     flash("Ese usuario no es de tu iglesia", "error")
                 else:
-                    nueva = f.get("nueva_clave","").strip()
-                    if not nueva:
-                        flash("Debe ingresar una nueva contraseña", "error")
+                    _obj = q("SELECT rol FROM usuarios WHERE id=%s", (item_id,), one=True)
+                    if not _obj or not puede_gestionar_rol(_obj["rol"], item_id):
+                        flash("No puede cambiar la contraseña de una cuenta con igual o mayor privilegio que la suya", "error")
                     else:
-                        err = validar_clave(nueva)
-                        if err:
-                            flash(f"La clave no cumple: {', '.join(err)}", "error")
+                        nueva = f.get("nueva_clave","").strip()
+                        if not nueva:
+                            flash("Debe ingresar una nueva contraseña", "error")
                         else:
-                            from werkzeug.security import generate_password_hash
-                            q("UPDATE usuarios SET password_hash=%s, primer_login=TRUE WHERE id=%s", (generate_password_hash(nueva), item_id), commit=True)
-                            log_audit("RESET_CLAVE","usuarios", f"id={item_id}")
-                            flash(f"Contraseña actualizada (usuario id {item_id}) — deberá cambiarla al ingresar", "ok")
+                            err = validar_clave(nueva)
+                            if err:
+                                flash(f"La clave no cumple: {', '.join(err)}", "error")
+                            else:
+                                from werkzeug.security import generate_password_hash
+                                q("UPDATE usuarios SET password_hash=%s, primer_login=TRUE WHERE id=%s", (generate_password_hash(nueva), item_id), commit=True)
+                                log_audit("RESET_CLAVE","usuarios", f"id={item_id}")
+                                flash(f"Contraseña actualizada (usuario id {item_id}) — deberá cambiarla al ingresar", "ok")
 
             # === GENERAR CÓDIGOS DE LÍDERES (SUPERADMIN y ADMIN) ===
             elif accion == "generar_codigos_lideres":
@@ -4126,38 +4191,53 @@ def configuracion_accion():
                     q(f"UPDATE {tabla} SET activo=false WHERE id=%s", (item_id,), commit=True)
                     flash("Desactivado (no se puede eliminar por relaciones)", "ok")
                 else:
-                    # Si el valor está en uso, poner "NINGUNO" antes de eliminar (solo en su alcance)
-                    try:
-                        fallback_info = CATALOGO_FALLBACK.get(tabla)
+                    # Reglas de borrado seguro:
+                    #  1) en uso + mapa de respaldo  -> se REASIGNA antes (p. ej. una red
+                    #     usada por líderes e informes pasa a MIXTO);
+                    #  2) en uso y SIN respaldo      -> NO se borra (se avisa);
+                    #  3) si el repunteo falla       -> NO se borra (evita datos huérfanos).
+                    fallback_info = CATALOGO_FALLBACK.get(tabla)
+                    val_row = q(f"SELECT nombre FROM {tabla} WHERE id=%s", (item_id,), one=True)
+                    val_nombre = None
+                    if val_row:
+                        # En catalogo_sexo el valor que se guarda en los datos es el código (M/F)
+                        val_nombre = ((val_row.get("codigo") or val_row["nombre"])
+                                      if tabla == "catalogo_sexo" else val_row["nombre"])
+                    repintados, fallo, bloqueado = 0, False, False
+                    if val_nombre is not None:
                         if fallback_info:
-                            # Obtener nombre del valor a eliminar
-                            val_row = q(f"SELECT nombre FROM {tabla} WHERE id=%s", (item_id,), one=True)
-                            if val_row:
-                                val_nombre = val_row["nombre"]
-                                # Para catalogo_sexo el nombre es descriptivo pero el valor real es codigo
-                                if tabla == "catalogo_sexo":
-                                    val_nombre = val_row.get("codigo", val_row["nombre"])
-                                    # sexo usa codigo M/F
-                                    for t, col, default in fallback_info:
-                                        cnt = q(f"SELECT COUNT(*) AS c FROM {t} WHERE {col}=%s{_uf}", tuple([val_nombre] + _up), one=True)
-                                        if cnt and cnt["c"] > 0:
-                                            if default is None:
-                                                q(f"UPDATE {t} SET {col}=NULL WHERE {col}=%s{_uf}", tuple([val_nombre] + _up), commit=True)
-                                            else:
-                                                q(f"UPDATE {t} SET {col}=%s WHERE {col}=%s{_uf}", tuple([default, val_nombre] + _up), commit=True)
-                                else:
-                                    for t, col, default in fallback_info:
-                                        cnt = q(f"SELECT COUNT(*) AS c FROM {t} WHERE {col}=%s{_uf}", tuple([val_nombre] + _up), one=True)
-                                        if cnt and cnt["c"] > 0:
-                                            if default is None:
-                                                q(f"UPDATE {t} SET {col}=NULL WHERE {col}=%s{_uf}", tuple([val_nombre] + _up), commit=True)
-                                            else:
-                                                q(f"UPDATE {t} SET {col}=%s WHERE {col}=%s{_uf}", tuple([default, val_nombre] + _up), commit=True)
-                                            flash(f"{cnt['c']} registro(s) con '{val_nombre}' cambiados a '{default or 'Ninguno'}'", "ok")
-                    except Exception as e:
-                        print(f"Fallback eliminar catalogo: {e}")
-                    q(f"DELETE FROM {tabla} WHERE id=%s", (item_id,), commit=True)
-                    flash("Eliminado", "ok")
+                            for t, col, default in fallback_info:
+                                try:
+                                    cnt = q(f"SELECT COUNT(*) AS c FROM {t} WHERE {col}=%s{_uf}",
+                                            tuple([val_nombre] + _up), one=True)
+                                    if cnt and cnt["c"] > 0:
+                                        if default is None:
+                                            q(f"UPDATE {t} SET {col}=NULL WHERE {col}=%s{_uf}",
+                                              tuple([val_nombre] + _up), commit=True)
+                                        else:
+                                            q(f"UPDATE {t} SET {col}=%s WHERE {col}=%s{_uf}",
+                                              tuple([default, val_nombre] + _up), commit=True)
+                                        repintados += cnt["c"]
+                                except Exception as e:
+                                    fallo = True
+                                    print(f"Fallback eliminar catalogo: {e}")
+                        else:
+                            # Sin respaldo: solo se borra si NADIE está usando el valor
+                            for t, col in CATALOGO_EN_USO.get(tabla, []):
+                                cnt = q(f"SELECT COUNT(*) AS c FROM {t} WHERE {col}=%s{_uf}",
+                                        tuple([val_nombre] + _up), one=True)
+                                if cnt and cnt["c"] > 0:
+                                    bloqueado = True
+                                    flash(f"'{val_nombre}' está en uso en {cnt['c']} registro(s): "
+                                          "cambie esos datos antes de eliminar el valor.", "error")
+                                    break
+                    if fallo:
+                        flash("No se pudieron reasignar los registros que usan ese valor; no se eliminó.", "error")
+                    elif not bloqueado:
+                        if repintados:
+                            flash(f"{repintados} registro(s) reasignados a su valor por defecto antes de eliminar", "ok")
+                        q(f"DELETE FROM {tabla} WHERE id=%s", (item_id,), commit=True)
+                        flash("Eliminado", "ok")
 
             elif accion == "editar_icono" and item_id:
                 _row = q(f"SELECT iglesia_id FROM {tabla} WHERE id=%s", (item_id,), one=True)
