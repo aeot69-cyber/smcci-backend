@@ -24,4 +24,4 @@
 <table class="table"><tr><th>Nombre</th><th>Red</th></tr>{% for l in lideres_sin %}<tr><td>{{l.nombre_completo}}</td><td>{{l.red or '—'}}</td></tr>{% else %}<tr><td colspan=2>Ninguno</td></tr>{% endfor %}</table></div>
 <div class="card p-3"><h5>Historial (hermanos + visitas)</h5><table class="table"><tr><th>Fecha</th><th>Origen</th><th>Nombre</th><th>Tipo</th><th>Resp.</th><th>Acciones</th></tr>
 {% for h in hist %}<tr><td>{{h.fecha}}</td><td>{{h.origen}}</td><td>{{h.nombre}}</td><td>{{h.tipo or '—'}}</td><td>{{h.responsable}}</td>
-<td>{% if tiene_permiso('seguimiento','eliminar') %}<form method="post" action="/seguimiento/{{h.id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar este seguimiento?')"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}</td></tr>{% endfor %}</table></div>{% endblock %}
+<td>{% if tiene_permiso('seguimiento','eliminar') %}<form method="post" action="/seguimiento/{{h.id}}/eliminar" style="display:inline" data-confirm="¿Eliminar este seguimiento?"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}</td></tr>{% endfor %}</table></div>{% endblock %}

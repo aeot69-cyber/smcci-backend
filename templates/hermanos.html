@@ -16,6 +16,6 @@
 {% if h.activo %}<form method="post" action="/hermanos/{{h.id}}/toggle" style="display:inline" onsubmit="var m=prompt('Motivo de baja (se guarda con fecha de hoy):','Salida registrada'); if(m===null) return false; var i=document.createElement('input'); i.type='hidden'; i.name='motivo'; i.value=m; this.appendChild(i); return true;"><button class="btn btn-sm btn-outline-warning" title="Dar de baja (inactivo, conserva código)">⏸️</button></form>
 {% else %}<form method="post" action="/hermanos/{{h.id}}/toggle" style="display:inline"><button class="btn btn-sm btn-outline-success" title="Reactivar">▶️</button></form>{% endif %}
 {% endif %}
-{% if tiene_permiso('hermanos','eliminar') %}<form method="post" action="/hermanos/{{h.id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar hermano {{h.nombre_completo}}? Esto borra historial.')"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
+{% if tiene_permiso('hermanos','eliminar') %}<form method="post" action="/hermanos/{{h.id}}/eliminar" style="display:inline" data-confirm="¿Eliminar hermano {{h.nombre_completo}}? Esto borra historial."><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
 </td></tr>{% endfor %}</table></div>
 <p class="text-muted small">Mostrando {{rows|length}} registros. {% if festado=='activos' %}Solo activos. Cambia a "Inactivos" para ver el histórico con código conservado.{% elif festado=='inactivos' %}Histórico de bajas (alguna vez activos) — código conservado.{% endif %}</p></div>{% endblock %}

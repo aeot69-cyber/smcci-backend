@@ -48,7 +48,7 @@ Si guardás el texto <b>igual al original</b>, se quita el cambio y queda el val
   <div class="d-flex gap-2 flex-wrap">
     <button type="submit" name="accion" value="guardar" class="btn btn-primary btn-sm">💾 Guardar ayudas de esta página</button>
     <button type="submit" name="accion" value="restaurar" class="btn btn-outline-secondary btn-sm"
-            onclick="return confirm('¿Restaurar TODAS las ayudas de «{{ p.nombre }}» a sus valores originales?')">↩️ Restaurar por defecto</button>
+            data-confirm="¿Restaurar TODAS las ayudas de «{{ p.nombre }}» a sus valores originales?">↩️ Restaurar por defecto</button>
   </div>
 </form>
 </div>
@@ -98,7 +98,7 @@ Si guardás el texto <b>igual al original</b>, se quita el cambio y queda el val
 <form method="post" style="display:inline"><input type="hidden" name="catalogo" value="{{cat.tabla}}"><input type="hidden" name="accion" value="toggle"><input type="hidden" name="item_id" value="{{item.id}}">
 <button class="btn btn-sm btn-outline-{% if item.activo %}warning{% else %}success{% endif %}" title="{% if item.activo %}Desactivar{% else %}Activar{% endif %}">{% if item.activo %}⏸{% else %}▶{% endif %}</button></form>
 <form method="post" style="display:inline"><input type="hidden" name="catalogo" value="{{cat.tabla}}"><input type="hidden" name="accion" value="eliminar"><input type="hidden" name="item_id" value="{{item.id}}">
-<button class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="return confirm('¿Eliminar {{item.nombre}}?')">🗑</button></form>
+<button class="btn btn-sm btn-outline-danger" title="Eliminar" data-confirm="¿Eliminar {{item.nombre}}?">🗑</button></form>
 </td>
 </tr>
 {% else %}
@@ -204,7 +204,7 @@ Si guardás el texto <b>igual al original</b>, se quita el cambio y queda el val
 <form method="post" style="display:inline"><input type="hidden" name="catalogo" value="__usuarios__"><input type="hidden" name="accion" value="toggle_usuario"><input type="hidden" name="item_id" value="{{u.id}}">
 <button class="btn btn-sm btn-outline-{% if u.activo %}warning{% else %}success{% endif %}" title="{% if u.activo %}Desactivar{% else %}Activar{% endif %}">{% if u.activo %}⏸{% else %}▶{% endif %}</button></form>
 <form method="post" style="display:inline"><input type="hidden" name="catalogo" value="__usuarios__"><input type="hidden" name="accion" value="eliminar_usuario"><input type="hidden" name="item_id" value="{{u.id}}">
-<button class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="return confirm('¿Eliminar usuario {{u.username}}?')">🗑</button></form>
+<button class="btn btn-sm btn-outline-danger" title="Eliminar" data-confirm="¿Eliminar usuario {{u.username}}?">🗑</button></form>
 </td>
 </tr>
 {% else %}
@@ -316,7 +316,7 @@ function editarIcono(tabla, id, actual) {
           <small class="text-muted">Recomendado: solo llena los vacíos. No toca los códigos ya asignados.</small>
         </div>
         <div class="col-md-6">
-          <form method="post" class="d-inline" onsubmit="return confirm('Esto REGENERA TODOS los códigos (invalida los actuales). ¿Continuar?')">
+          <form method="post" class="d-inline" data-confirm="Esto REGENERA TODOS los códigos (invalida los actuales). ¿Continuar?">
             <input type="hidden" name="catalogo" value="__usuarios__">
             <input type="hidden" name="accion" value="generar_codigos_lideres">
             <input type="hidden" name="modo" value="todos">
@@ -450,7 +450,7 @@ function editarIcono(tabla, id, actual) {
             {% endif %}
           </td>
           <td class="text-nowrap">
-            <form method="post" class="d-inline" onsubmit="return confirm('¿Regenerar el código de {{l.nombre_completo}}? El código anterior dejará de funcionar.')">
+            <form method="post" class="d-inline" data-confirm="¿Regenerar el código de {{l.nombre_completo}}? El código anterior dejará de funcionar.">
               <input type="hidden" name="catalogo" value="__usuarios__">
               <input type="hidden" name="accion" value="generar_codigo_un_lider">
               <input type="hidden" name="lider_id" value="{{l.id}}">

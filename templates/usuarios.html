@@ -33,7 +33,7 @@
 </form>
 {% endif %}
 {% if tiene_permiso('usuarios','eliminar') and u.rol != 'SUPERADMIN' %}
-<form method="post" action="/usuarios/{{u.id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar este usuario?')">
+<form method="post" action="/usuarios/{{u.id}}/eliminar" style="display:inline" data-confirm="¿Eliminar este usuario?">
 <button class="btn btn-outline-danger btn-sm">🗑️</button>
 </form>
 {% endif %}

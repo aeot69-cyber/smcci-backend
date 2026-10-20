@@ -20,6 +20,6 @@
 <p>Para confirmar escribe el nombre exacto: <b>{{ig.nombre}}</b></p>
 <form method="post" action="/iglesias/{{ig.id}}/purga">
 <div class="mb-3"><input class="form-control" name="confirmar" placeholder="Escribe {{ig.nombre}} para confirmar" required autocomplete="off"></div>
-<button class="btn btn-danger" onclick="return confirm('Última advertencia: se borra TODO lo de {{ig.nombre}}. ¿Seguro?')">☠️ Sí, purgar todo</button>
+<button class="btn btn-danger" data-confirm="Última advertencia: se borra TODO lo de {{ig.nombre}}. ¿Seguro?">☠️ Sí, purgar todo</button>
 <a href="/iglesias" class="btn btn-secondary">Cancelar</a></form>
 {% endif %}</div>{% endblock %}

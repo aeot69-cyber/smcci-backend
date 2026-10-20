@@ -29,7 +29,7 @@
 <td>{% if c.realizo %}<span class="badge bg-success">SI</span>{% else %}<span class="badge bg-danger">NO</span>{% endif %}</td>
 <td>${{c.ofrenda or 0}}</td>
 <td><a class="btn btn-sm btn-outline-primary" href="/celulas-informe/{{c.id}}/editar">✏️</a>
-<form method="post" action="/celulas-informe/{{c.id}}/eliminar" class="d-inline" onsubmit="return confirm('¿Eliminar?')">
+<form method="post" action="/celulas-informe/{{c.id}}/eliminar" class="d-inline" data-confirm="¿Eliminar?">
 <button class="btn btn-sm btn-outline-danger">🗑️</button></form></td>
 </tr>{% else %}<tr><td colspan=10>Sin informes</td></tr>{% endfor %}
 </table></div>{% endblock %}

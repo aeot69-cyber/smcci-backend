@@ -11,6 +11,6 @@
 <td class="text-nowrap">{% if not d.fecha_fin %}
 {% if tiene_permiso('discipulado','editar') %}<a class="btn btn-sm btn-outline-primary" href="/discipulado/{{d.id}}/editar" title="Modificar">✏️</a> <form method="post" action="/discipulado/{{d.id}}/cerrar" style="display:inline"><button class="btn btn-sm btn-outline-secondary" title="Cerrar">🔒</button></form>{% endif %}
 {% endif %}
-{% if tiene_permiso('discipulado','eliminar') %}<form method="post" action="/discipulado/{{d.id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar asignación?')"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
+{% if tiene_permiso('discipulado','eliminar') %}<form method="post" action="/discipulado/{{d.id}}/eliminar" style="display:inline" data-confirm="¿Eliminar asignación?"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
 </td></tr>{% endfor %}</table>
 <p class="text-muted small">Mostrando {{rows|length}} registros.</p></div>{% endblock %}

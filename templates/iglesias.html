@@ -15,10 +15,10 @@
 <td>{{'✅' if r.activo else '❌'}}</td>
 <td class="text-nowrap"><a class="btn btn-sm btn-outline-primary" href="/iglesias/{{r.id}}/editar">✏️</a>
 {% if r.tipo == 'GRUPO' %}
-<form method="post" action="/iglesias/{{r.id}}/convertir" style="display:inline" onsubmit="return confirm('¿Convertir {{r.nombre}} en IGLESIA HIJA? Pasará a ser una sede propia; conserva datos, líderes e informes. Después asígnele su ADMIN_HIJA en Usuarios.')"><button class="btn btn-sm btn-outline-success" title="Convertir grupo en iglesia hija">🏛️</button></form>
+<form method="post" action="/iglesias/{{r.id}}/convertir" style="display:inline" data-confirm="¿Convertir {{r.nombre}} en IGLESIA HIJA? Pasará a ser una sede propia; conserva datos, líderes e informes. Después asígnele su ADMIN_HIJA en Usuarios."><button class="btn btn-sm btn-outline-success" title="Convertir grupo en iglesia hija">🏛️</button></form>
 {% endif %}
 {% if r.id != 1 %}
-<form method="post" action="/iglesias/{{r.id}}/toggle" style="display:inline" onsubmit="return confirm('¿{% if r.activo %}DESACTIVAR {{r.nombre}}? Sus usuarios no podrán entrar (se conserva todo){% else %}Reactivar {{r.nombre}}?{% endif %}')"><button class="btn btn-sm btn-outline-{% if r.activo %}warning{% else %}success{% endif %}">{% if r.activo %}⏸{% else %}▶{% endif %}</button></form>
+<form method="post" action="/iglesias/{{r.id}}/toggle" style="display:inline" data-confirm="¿{% if r.activo %}DESACTIVAR {{r.nombre}}? Sus usuarios no podrán entrar (se conserva todo){% else %}Reactivar {{r.nombre}}?{% endif %}"><button class="btn btn-sm btn-outline-{% if r.activo %}warning{% else %}success{% endif %}">{% if r.activo %}⏸{% else %}▶{% endif %}</button></form>
 <a class="btn btn-sm btn-outline-danger" href="/iglesias/{{r.id}}/purga" title="Eliminar (pide confirmación)">🗑️</a>
 {% endif %}
 </td>

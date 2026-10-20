@@ -14,5 +14,5 @@
 <td>{% if v.estado != 'INTEGRADO' and tiene_permiso('visitas','editar') %}<form method="post" action="/visitas/{{v.id}}/integrar" class="d-flex gap-1">
 <select name="lider" class="form-select form-select-sm" required title="Célula destino">{% for l in lideres %}<option value="{{l.id}}">{{l.nombre_completo}}</option>{% endfor %}</select>
 <button class="btn btn-sm btn-success" title="Crea hermano con código automático + asigna célula">➡️ Integrar</button></form>{% else %}✅ Integrado{% endif %}</td>
-<td>{% if tiene_permiso('visitas','eliminar') %}<form method="post" action="/visitas/{{v.id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar visita de {{v.nombre_completo}}?')"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan=7>Sin visitas.</td></tr>{% endfor %}</table></div>
+<td>{% if tiene_permiso('visitas','eliminar') %}<form method="post" action="/visitas/{{v.id}}/eliminar" style="display:inline" data-confirm="¿Eliminar visita de {{v.nombre_completo}}?"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan=7>Sin visitas.</td></tr>{% endfor %}</table></div>
 <p class="text-muted small">Mostrando {{rows|length}} visitas.</p></div>{% endblock %}

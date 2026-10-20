@@ -1013,6 +1013,29 @@ def obtener_roles():
     except:
         return ROLES_LIST
 
+# ---------- Jerarquía de roles: nadie gestiona cuentas iguales o superiores ----------
+# Un ADMIN no puede tomar una cuenta SUPERADMIN (ni la de otro ADMIN) cambiándole
+# la contraseña, el rol o desactivándola. Eso solo lo hace SUPERADMIN.
+_JERARQUIA_ROLES = {"SUPERADMIN": 100, "ADMIN": 80, "ADMIN_HIJA": 70,
+                    "ADMIN_GRUPO": 60, "CONSULTA": 20, "VISTA": 10}
+
+def puede_asignar_rol(rol_nuevo):
+    """Rol que se le puede OTORGAR a una cuenta: siempre por debajo del propio.
+    Un rol fuera de la jerarquía (catálogo nuevo) no se otorga, por prudencia."""
+    mio = _JERARQUIA_ROLES.get((session.get("rol", "") or "").upper(), 0)
+    if mio >= _JERARQUIA_ROLES["SUPERADMIN"]:
+        return True
+    r = _JERARQUIA_ROLES.get((rol_nuevo or "").upper())
+    return r is not None and r < mio
+
+def puede_gestionar_rol(rol_objetivo, uid_objetivo=None):
+    """¿Se puede actuar sobre esa cuenta (editar, toggle, eliminar, resetear clave)?
+    Nunca sobre cuentas del mismo nivel o por encima. Editarse a uno mismo sí está
+    permitido: su rol igual no se puede elevar, eso lo decide puede_asignar_rol."""
+    if uid_objetivo is not None and uid_objetivo == session.get("uid"):
+        return True
+    return puede_asignar_rol(rol_objetivo)
+
 @app.get("/usuarios")
 @login_req
 @permiso_req("usuarios", "leer")
@@ -1067,8 +1090,8 @@ def usuario_crear():
     errores = validar_clave(pwd)
     if errores:
         flash(f"La contraseña no cumple: {', '.join(errores)}", "error"); return redirect(url_for("usuario_nuevo"))
-    if rol_actual != "SUPERADMIN" and nuevo_rol == "SUPERADMIN":
-        flash("No tiene permiso para crear usuarios SUPERADMIN", "error"); return redirect(url_for("usuario_nuevo"))
+    if not puede_asignar_rol(nuevo_rol):
+        flash("No tiene permiso para crear usuarios con un rol igual o superior al suyo", "error"); return redirect(url_for("usuario_nuevo"))
     try:
         q("INSERT INTO usuarios(username,password_hash,rol,activo,primer_login,lider_id,iglesia_id) VALUES(%s,%s,%s,%s,TRUE,%s,%s)",
           (username, generate_password_hash(pwd), f["rol"], f.get("activo")=="on", lider_id, igl_nueva), commit=True)
@@ -1085,6 +1108,9 @@ def usuario_editar(uid):
         flash("Ese usuario no es de tu iglesia", "error"); return redirect(url_for("usuarios"))
     u = q("SELECT u.*, i.nombre AS iglesia FROM usuarios u LEFT JOIN iglesias i ON i.id=u.iglesia_id WHERE u.id=%s", (uid,), one=True)
     if not u: flash("Usuario no encontrado", "error"); return redirect(url_for("usuarios"))
+    if not puede_gestionar_rol(u["rol"], uid):
+        flash("No puede editar una cuenta con igual o mayor privilegio que la suya", "error")
+        return redirect(url_for("usuarios"))
     fl, pl = filtro_igl("l")
     lideres = q(f"""SELECT l.id, h.nombre_completo FROM lideres l
         JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo{fl} ORDER BY h.nombre_completo""", tuple(pl))
@@ -1099,6 +1125,12 @@ def usuario_update(uid):
     f = request.form
     if not exigir_igl("usuarios", uid):
         flash("Ese usuario no es de tu iglesia", "error"); return redirect(url_for("usuarios"))
+    objetivo = q("SELECT rol FROM usuarios WHERE id=%s", (uid,), one=True)
+    if not objetivo:
+        flash("Usuario no encontrado", "error"); return redirect(url_for("usuarios"))
+    if not puede_gestionar_rol(objetivo["rol"], uid):
+        flash("No puede editar una cuenta con igual o mayor privilegio que la suya", "error")
+        return redirect(url_for("usuarios"))
     pwd = f.get("password","").strip()
     rol_actual = session.get("rol","")
     nuevo_rol = f["rol"]
@@ -1109,8 +1141,8 @@ def usuario_update(uid):
     igl_sql, igl_params = "", []
     if rol_actual == "SUPERADMIN" and f.get("iglesia_id"):
         igl_sql, igl_params = ", iglesia_id=%s", [int(f.get("iglesia_id"))]
-    if rol_actual != "SUPERADMIN" and nuevo_rol == "SUPERADMIN":
-        flash("No tiene permiso para asignar rol SUPERADMIN", "error")
+    if not puede_asignar_rol(nuevo_rol):
+        flash("No tiene permiso para asignar un rol igual o superior al suyo", "error")
         return redirect(url_for("usuarios"))
     if pwd:
         errores = validar_clave(pwd)
@@ -1135,6 +1167,12 @@ def usuario_update(uid):
 def usuario_toggle(uid):
     if not exigir_igl("usuarios", uid):
         flash("Ese usuario no es de tu iglesia", "error"); return redirect(url_for("usuarios"))
+    objetivo = q("SELECT rol FROM usuarios WHERE id=%s", (uid,), one=True)
+    if not objetivo:
+        flash("Usuario no encontrado", "error"); return redirect(url_for("usuarios"))
+    if not puede_gestionar_rol(objetivo["rol"], uid):
+        flash("No puede desactivar una cuenta con igual o mayor privilegio que la suya", "error")
+        return redirect(url_for("usuarios"))
     q("UPDATE usuarios SET activo=NOT activo WHERE id=%s", (uid,), commit=True)
     flash("Estado actualizado", "ok"); return redirect(url_for("usuarios"))
 
@@ -1145,7 +1183,11 @@ def usuario_eliminar(uid):
     if not exigir_igl("usuarios", uid):
         flash("Ese usuario no es de tu iglesia", "error"); return redirect(url_for("usuarios"))
     u = q("SELECT rol FROM usuarios WHERE id=%s", (uid,), one=True)
-    if u and u["rol"] == "SUPERADMIN":
+    if not u:
+        flash("Usuario no encontrado", "error")
+    elif not puede_gestionar_rol(u["rol"], uid):
+        flash("No puede eliminar una cuenta con igual o mayor privilegio que la suya", "error")
+    elif u["rol"] == "SUPERADMIN":
         flash("No se puede eliminar un SUPERADMIN", "error")
     else:
         q("DELETE FROM usuarios WHERE id=%s", (uid,), commit=True)
@@ -1159,6 +1201,13 @@ def usuario_eliminar(uid):
 def usuario_reset_clave(uid):
     if not exigir_igl("usuarios", uid):
         flash("Ese usuario no es de tu iglesia", "error")
+        return redirect(url_for("usuarios"))
+    objetivo = q("SELECT rol FROM usuarios WHERE id=%s", (uid,), one=True)
+    if not objetivo:
+        flash("Usuario no encontrado", "error")
+        return redirect(url_for("usuarios"))
+    if not puede_gestionar_rol(objetivo["rol"], uid):
+        flash("No puede cambiar la contraseña de una cuenta con igual o mayor privilegio que la suya", "error")
         return redirect(url_for("usuarios"))
     nueva = request.form.get("nueva_clave","").strip()
     if not nueva:

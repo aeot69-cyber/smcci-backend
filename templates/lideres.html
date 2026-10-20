@@ -40,6 +40,6 @@
 <input name="celulas" size=2 value="{{l.cantidad_celulas}}" class="form-control form-control-sm" title="N° células" style="width:50px">
 <input name="macro" size=2 value="{{l.cantidad_macrocelulas}}" class="form-control form-control-sm" title="N° macrocélulas" style="width:50px">
 <button class="btn btn-sm btn-primary" title="Guardar">💾</button></form>{% endif %}
-{% if tiene_permiso('lideres','eliminar') %}<form method="post" action="/lideres/{{l.lider_id}}/eliminar" style="display:inline" onsubmit="return confirm('¿Eliminar líder?')"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
+{% if tiene_permiso('lideres','eliminar') %}<form method="post" action="/lideres/{{l.lider_id}}/eliminar" style="display:inline" data-confirm="¿Eliminar líder?"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
 </td></tr>{% endfor %}</table></div>
 <p class="text-muted small">Mostrando {{rows|length}} líderes.</p></div>{% endblock %}

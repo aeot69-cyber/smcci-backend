@@ -39,5 +39,24 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   });
 });
+
+// Confirmaciones (borrar, restaurar, regenerar...). El texto va en el atributo
+// data-confirm, que Jinja escapa como HTML, y se lee con getAttribute: es una
+// cadena de texto y nunca se interpreta como JavaScript. Así un nombre con
+// comillas o con código no puede romper el confirm(), como pasaba con
+// onclick/onsubmit="return confirm('...')".
+function _confirmarDesde(el, ev) {
+  if (!el || !el.getAttribute) return;
+  var txt = el.getAttribute('data-confirm');
+  if (!txt) return;
+  if (!confirm(txt)) { ev.preventDefault(); ev.stopPropagation(); }
+}
+document.addEventListener('submit', function (ev) { _confirmarDesde(ev.target, ev); }, true);
+document.addEventListener('click', function (ev) {
+  var b = ev.target && ev.target.closest ? ev.target.closest('button[data-confirm]') : null;
+  if (!b) return;
+  if (b.closest('form[data-confirm]')) return;   // lo confirma el propio form al enviar
+  _confirmarDesde(b, ev);
+}, true);
 </script>
 </body></html>
