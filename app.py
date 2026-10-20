@@ -7,7 +7,7 @@ from functools import wraps
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, session, redirect, url_for, render_template, flash, abort, send_file, make_response
+from flask import Flask, request, jsonify, session, redirect, url_for, render_template, flash, abort, send_file, make_response, got_request_exception
 from werkzeug.security import check_password_hash
 from io import BytesIO
 from openpyxl import Workbook
@@ -224,7 +224,9 @@ def permiso_req(modulo, accion="leer"):
     def deco(fn):
         @wraps(fn)
         def inner(*a, **kw):
-            if not tiene_permiso(session.get("rol",""), modulo, accion):
+            # uid: así se consultan los permisos individuales del usuario
+            # (tabla usuario_permisos); sin él eran decorativos.
+            if not tiene_permiso(session.get("rol",""), modulo, accion, session.get("uid")):
                 flash("No tiene permiso para esta acción", "error")
                 return redirect(url_for("index"))
             return fn(*a, **kw)
@@ -278,6 +280,75 @@ def tiene_permiso(rol, modulo, accion="leer", usuario_id=None, iglesia_id="sesio
     p = permisos(rol, iglesia_id).get(modulo)
     if not p: return False
     return bool(p.get(f"puede_{accion}", False))
+
+# ---------- ANTI-CSRF: de dónde viene realmente la petición ----------
+# Los formularios no llevan token (son 71); en su lugar se verifica en el
+# servidor que un POST no venga de otra página. Complementa SameSite=Lax de la
+# cookie de sesión, que ya impide que un formulario ajeno arrastre la sesión:
+# si una web externa manda un POST contra smcci, el navegador envía
+# Sec-Fetch-Site/Origin/Referer de su propio sitio y aquí se rechaza.
+# /api/* queda exento: son consumidores programáticos sin navegador.
+@app.before_request
+def _csrf_verificar_origen():
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return None
+    if request.path.startswith("/api/"):
+        return None
+    bloqueado, motivo = None, ""
+
+    sitio = (request.headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if sitio and sitio not in ("same-origin", "none"):
+        bloqueado, motivo = True, f"Sec-Fetch-Site={sitio}"
+
+    if not bloqueado:
+        origen = (request.headers.get("Origin") or "").strip()
+        if origen:
+            if origen.lower() == "null":
+                bloqueado, motivo = True, "Origin=null (origen opaco)"
+            else:
+                from urllib.parse import urlparse
+                h = (urlparse(origen).hostname or "").lower()
+                if h and h != (request.host or "").split(":")[0].strip().lower():
+                    bloqueado, motivo = True, f"Origin={origen}"
+
+    if not bloqueado:
+        ref = (request.headers.get("Referer") or "").strip()
+        if ref:
+            from urllib.parse import urlparse
+            h = (urlparse(ref).hostname or "").lower()
+            if h and h != (request.host or "").split(":")[0].strip().lower():
+                bloqueado, motivo = True, f"Referer={ref[:80]}"
+
+    if bloqueado:
+        print(f"CSRF bloqueado: {motivo} -> {request.method} {request.path}")
+        return ("Solicitud bloqueada por seguridad: no proviene de esta página. "
+                "Regrese e intente de nuevo."), 403
+    return None
+
+# ---------- ERRORES 500: que no se pierdan ----------
+# Antes el detalle solo se imprimía en la consola de Render, que se borra, y
+# quedaba una página genérica. Todo error no controlado queda ahora en
+# auditoría (accion=ERROR_500) para verlo en Configuración › Errores.
+def _auditar_excepcion(sender, exception, **extra):
+    try:
+        try:
+            ruta = request.path
+        except Exception:
+            ruta = ""
+        log_audit("ERROR_500", "sistema", f"{type(exception).__name__}: {exception} | {ruta}")
+    except Exception as ex:
+        print(f"auditar 500 fallo: {ex}")
+
+got_request_exception.connect(_auditar_excepcion, app)
+
+@app.errorhandler(500)
+def _error_500(e):
+    return ("<html lang='es'><meta charset='utf-8'><title>SMCCI</title>"
+            "<body style='font-family:sans-serif;padding:2rem;max-width:640px'>"
+            "<h3>No pudimos procesar la solicitud</h3>"
+            "<p>El error qued&oacute; registrado en Configuraci&oacute;n &rsaquo; Errores. "
+            "Vuelva atr&aacute;s e intente de nuevo; si contin&uacute;a, avise al "
+            "administrador del sistema.</p></body></html>"), 500
 
 # ---------- MULTI-IGLESIA ----------
 def iglesia_actual():
@@ -1523,6 +1594,7 @@ def index():
 # ---------- HERMANOS ----------
 @app.get("/hermanos")
 @login_req
+@permiso_req("hermanos", "leer")
 def hermanos():
     texto = request.args.get("q", "")
     exp = request.args.get("export", "")
@@ -1744,6 +1816,7 @@ def hermano_eliminar(hid):
 # ---------- LIDERES ----------
 @app.get("/lideres")
 @login_req
+@permiso_req("lideres", "leer")
 def lideres():
     exp = request.args.get("export", "")
     f12 = request.args.get("f12", "")
@@ -1949,6 +2022,7 @@ def lider_eliminar(lid):
 # ---------- DISCIPULADO ----------
 @app.get("/discipulado")
 @login_req
+@permiso_req("discipulado", "leer")
 def discipulado():
     exp = request.args.get("export", "")
     texto = request.args.get("q", "")
@@ -2060,6 +2134,7 @@ def disc_eliminar(did):
 # ---------- ENCUENTROS ----------
 @app.get("/encuentros")
 @login_req
+@permiso_req("encuentros", "leer")
 def encuentros():
     exp = request.args.get("export", "")
     texto = request.args.get("q", "")
@@ -2087,7 +2162,7 @@ def enc_nuevo():
     return render_template("enc_form.html",
         hermanos=q(f"SELECT id,nombre_completo FROM hermanos WHERE activo{fi} ORDER BY 2", tuple(pi)),
         tipos=q("SELECT * FROM tipos_encuentro ORDER BY orden"),
-        fecha_hoy=date.today().isoformat())
+        fecha_hoy=hoy_chile().isoformat())
 
 @app.post("/encuentros/nuevo")
 @login_req
@@ -2098,7 +2173,7 @@ def enc_crear():
     if not exigir_igl("hermanos", f.get("hermano") or 0):
         flash("Ese hermano no es de tu iglesia", "error"); return redirect(url_for("encuentros"))
     try:
-        fecha = f.get("fecha") or date.today().isoformat()
+        fecha = f.get("fecha") or hoy_chile().isoformat()
         q("""INSERT INTO encuentro_participacion(hermano_id,tipo_encuentro_id,estado,fecha_evento) VALUES(%s,%s,%s,%s)
              ON CONFLICT (hermano_id,tipo_encuentro_id) DO UPDATE SET estado=EXCLUDED.estado,fecha_evento=EXCLUDED.fecha_evento""",
           (f["hermano"], f["tipo"], f["estado"], fecha), commit=True)
@@ -2130,7 +2205,7 @@ def enc_masivo():
             WHERE d.lider_id=%s AND d.fecha_fin IS NULL AND d.es_discipulo_activo=true ORDER BY h.nombre_completo""", (sel,))
     return render_template("enc_masivo.html", lideres=lideres, discipulos=discipulos,
         sel_lider=int(sel) if sel else None, tipos=q("SELECT * FROM tipos_encuentro ORDER BY orden"),
-        fecha_hoy=date.today().isoformat())
+        fecha_hoy=hoy_chile().isoformat())
 
 @app.post("/encuentros/masivo")
 @login_req
@@ -2141,7 +2216,7 @@ def enc_masivo_guardar():
     discs = f.getlist("disc")
     tipo = f["tipo"]
     estado = f["estado"]
-    fecha = f.get("fecha") or date.today().isoformat()
+    fecha = f.get("fecha") or hoy_chile().isoformat()
     if not discs:
         flash("Seleccioná al menos un discípulo", "error")
         return redirect(url_for("enc_masivo", lider=f.get("lider","")))
@@ -2204,7 +2279,7 @@ def enc_guia_guardar():
     if action == "masivo":
         marcados = f.getlist("marcado")
         estado = f.get("masivo_estado", "APROBADO")
-        fecha = date.today().isoformat()
+        fecha = hoy_chile().isoformat()
         count = 0
         for m in marcados:
             parts = m.split("|")
@@ -2226,7 +2301,7 @@ def enc_guia_guardar():
             hid, tid, estado = int(parts[0]), int(parts[1]), parts[2]
             if not exigir_igl("hermanos", hid):
                 flash("Ese hermano no es de tu iglesia", "error"); return redirect(url_for("enc_guia", lider=sel))
-            fecha = date.today().isoformat()
+            fecha = hoy_chile().isoformat()
             try:
                 q("""INSERT INTO encuentro_participacion(hermano_id,tipo_encuentro_id,estado,fecha_evento) VALUES(%s,%s,%s,%s)
                      ON CONFLICT (hermano_id,tipo_encuentro_id) DO UPDATE SET estado=EXCLUDED.estado,fecha_evento=EXCLUDED.fecha_evento""",
@@ -2249,6 +2324,7 @@ def enc_eliminar(eid):
 # ---------- SEGUIMIENTO DIARIO (sin célula) ----------
 @app.get("/seguimiento")
 @login_req
+@permiso_req("seguimiento", "leer")
 def seguimiento():
     exp = request.args.get("export", "")
     fi, pi = filtro_igl()
@@ -2318,6 +2394,7 @@ def seg_eliminar(sid):
 # ---------- VISITAS (culto) ----------
 @app.get("/visitas")
 @login_req
+@permiso_req("visitas", "leer")
 def visitas():
     exp = request.args.get("export", "")
     texto = request.args.get("q", "")
@@ -2480,7 +2557,7 @@ def celulas_informe_nuevo():
         JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo{fl} ORDER BY h.nombre_completo""", tuple(pl))
     return render_template("celulas_informe_form.html", c=None, lideres=lideres,
                            modalidades=get_catalogo("catalogo_modalidad_celula"),
-                           fecha_hoy=date.today().isoformat(),
+                           fecha_hoy=hoy_chile().isoformat(),
                            ayuda_timoteo=ayuda_timoteo(None))
 
 @app.post("/celulas-informe/nuevo")
@@ -2536,7 +2613,7 @@ def celulas_informe_editar(cid):
         modalidades = list(modalidades) + [{"nombre": c["modalidad"]}]
     return render_template("celulas_informe_form.html", c=c, lideres=lideres,
                            modalidades=modalidades,
-                           fecha_hoy=date.today().isoformat(),
+                           fecha_hoy=hoy_chile().isoformat(),
                            ayuda_timoteo=ayuda_timoteo(c.get("lider_id")))
 
 @app.post("/celulas-informe/<int:cid>/editar")
@@ -2619,6 +2696,23 @@ def celulas_informe_timoteos(lid):
 # ---------- INFORME EXPRESS (público, sin login) ----------
 from datetime import date, datetime
 
+# ---------- FECHA DE HOY EN CHILE ----------
+# El servidor corre en UTC: con date.today() un informe enviado a las 21:30 o
+# a las 2:00 de la mañana se comparaba contra el día equivocado y se rechazaba
+# como "futuro", además de contar mal la semana de "máximo 3 por informes".
+try:
+    from zoneinfo import ZoneInfo
+    _TZ_CHILE = ZoneInfo("America/Santiago")
+except Exception as _e:
+    _TZ_CHILE = None
+    print(f"AVISO: sin America/Santiago ({_e}); se usa la fecha del servidor (instale tzdata).")
+
+def hoy_chile():
+    """Fecha de hoy según Chile (America/Santiago)."""
+    if _TZ_CHILE is None:
+        return date.today()
+    return datetime.now(_TZ_CHILE).date()
+
 MESES_ES = {
     1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO",
     7: "JULIO", 8: "AGOSTO", 9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"
@@ -2626,7 +2720,7 @@ MESES_ES = {
 
 def semana_actual():
     """Devuelve 'Semana X del MES' para la etiqueta del formulario."""
-    hoy = date.today()
+    hoy = hoy_chile()
     # semana del mes (1-5)
     inicio_mes = date(hoy.year, hoy.month, 1)
     dias_desde_inicio = (hoy - inicio_mes).days
@@ -2723,7 +2817,7 @@ def ayuda_timoteo(lid):
     if not lid:
         return ay("celulas_informe_form.ft.0")
     n = len(q(_SQL_TIMOTEOS, (lid, lid)))
-    hoy = date.today()
+    hoy = hoy_chile()
     anio_hoy, sem_hoy, _ = hoy.isocalendar()
     n_sem = q("""SELECT COUNT(*) AS c FROM celulas_informe
                  WHERE lider_id=%s
@@ -2745,7 +2839,7 @@ def _leer_informe_interno(f):
         fecha_sel = date.fromisoformat(f.get("fecha", ""))
     except Exception:
         return ("Fecha inválida.", None, None, None)
-    if fecha_sel > date.today():
+    if fecha_sel > hoy_chile():
         return ("La fecha no puede ser futura.", None, None, None)
     # Si NO se realizó, el motivo es obligatorio (como en el exprés).
     if f.get("realizo") != "1" and not (f.get("justificacion") or "").strip():
@@ -2912,7 +3006,7 @@ def _mostrar_formulario_informe():
     # Timoteos disponibles (discípulos activos + sub-líderes) y cuántos informes
     # se han enviado esta semana (para mostrar "N de 3").
     timoteos = q(_SQL_TIMOTEOS, (lid, lid))
-    hoy = date.today()
+    hoy = hoy_chile()
     anio_hoy, sem_hoy, _ = hoy.isocalendar()
     n_sem = q("""SELECT COUNT(*) AS c FROM celulas_informe
                  WHERE lider_id=%s
@@ -2978,7 +3072,7 @@ def informe_guardar():
         return redirect(url_for("informe_express"))
 
     # No permitir fechas futuras
-    if fecha_sel > date.today():
+    if fecha_sel > hoy_chile():
         flash("La fecha no puede ser futura.", "error")
         return redirect(url_for("informe_express"))
 
@@ -3098,6 +3192,7 @@ def informe_salir():
 # ---------- REPORTES ----------
 @app.get("/reportes")
 @login_req
+@permiso_req("reportes", "leer")
 def reportes():
     exp = request.args.get("export", "")
     ver = request.args.get("ver", "todos")
@@ -3282,6 +3377,7 @@ def reportes():
 # ---------- GRÁFICOS (opción de menú: solo gráficos) ----------
 @app.get("/graficos")
 @login_req
+@permiso_req("reportes", "leer")
 def graficos():
     """9 gráficos validados: 6 de barras, 1 de líneas, 1 circular y 1 de anillo."""
     from datetime import timedelta
@@ -3292,7 +3388,7 @@ def graficos():
     def _iso(s):
         try: return date.fromisoformat(s or "")
         except Exception: return None
-    hoy = date.today()
+    hoy = hoy_chile()
     # Rango por defecto: mismo patrón "agosto–octubre" (inicios de mes, últimos 3 meses)
     mdef, adef = hoy.month - 2, hoy.year
     if mdef < 1: mdef += 12; adef -= 1
@@ -3816,7 +3912,7 @@ def configuracion_accion():
                         wb.save(buf)
                         buf.seek(0)
                         flash(f"✅ {len(lideres)} códigos generados ({'TODOS' if modo=='todos' else 'solo faltantes'})", "ok")
-                        return send_file(buf, as_attachment=True, download_name=f"codigos_lideres_{date.today().isoformat()}.xlsx",
+                        return send_file(buf, as_attachment=True, download_name=f"codigos_lideres_{hoy_chile().isoformat()}.xlsx",
                             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
             # === GENERAR CÓDIGO PARA UN SOLO LÍDER ===
@@ -3899,7 +3995,7 @@ def configuracion_accion():
                             wb.save(buf)
                             buf.seek(0)
                             flash(f"✅ {len(lideres)} códigos generados para red {red} ({'TODOS' if modo=='todos' else 'solo faltantes'})", "ok")
-                            return send_file(buf, as_attachment=True, download_name=f"codigos_lideres_{red}_{date.today().isoformat()}.xlsx",
+                            return send_file(buf, as_attachment=True, download_name=f"codigos_lideres_{red}_{hoy_chile().isoformat()}.xlsx",
                                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
             # === EXPORTAR CÓDIGOS ACTUALES ===
@@ -3971,7 +4067,7 @@ def configuracion_accion():
                     buf.seek(0)
                     flash(f"✅ {len(lideres)} registros exportados", "ok")
                     return send_file(buf, as_attachment=True,
-                        download_name=f"codigos_lideres_{filtro}_{date.today().isoformat()}.xlsx",
+                        download_name=f"codigos_lideres_{filtro}_{hoy_chile().isoformat()}.xlsx",
                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         else:

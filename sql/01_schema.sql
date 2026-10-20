@@ -89,6 +89,14 @@ CREATE TABLE IF NOT EXISTS lideres (
   cantidad_celulas INT NOT NULL DEFAULT 1 CHECK (cantidad_celulas >= 0),
   -- NOTA: discípulos activos NO se almacenan (se calculan en vista v_lideres_conteo)
   -- para evitar inconsistencia. Si exige columna histórica, usar vista materializada.
+  -- Cadena de líder: quién supervisa a quién. Varias vistas de la propia
+  -- secuencia (05, 17, 21, 22, 25) usan estas columnas desde el principio,
+  -- así que tienen que existir ya en el esquema base.
+  lider_padre_id INT REFERENCES lideres(id),
+  timoteo_id INT,
+  -- Rol en la cadena (PASTOR/PASTORA/APOSTOL/LIDER/NINGUNO). Igual que las
+  -- dos anteriores, lo usan vistas desde el principio (05, 17, 21, 25).
+  rol_lider VARCHAR(20) DEFAULT 'NINGUNO',
   fecha_nombramiento DATE DEFAULT CURRENT_DATE,
   activo BOOLEAN DEFAULT TRUE,
   observacion TEXT,
