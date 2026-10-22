@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block b %}<h4>🔄 Reactivar asignación — vuelta a MCCI</h4>
+<div class="alert alert-info">
+<b>{{ d.hermano_nom }}</b> — asignación con <b>{{ d.lider_anterior }}</b> del {{ d.fecha_asignacion }} al <b>{{ d.fecha_fin }}</b>.
+<br><small>Esta acción crea una <b>nueva asignación vigente</b> con la fecha de activación que elijas; <b>la asignación cerrada se conserva en el historial</b>. Si el hermano estaba de baja, queda dado de alta con esa misma fecha (y así queda registrado).</small>
+{% if not d.hermano_activo %}<br><span class="badge bg-warning text-dark">El hermano está en baja — se dará de alta automáticamente</span>{% endif %}
+{% if not lider_previo_visible %}<br><span class="badge bg-warning text-dark">El líder anterior ({{ d.lider_anterior }}) ya no está activo: elige otro líder</span>{% endif %}
+</div>
+<form method="post" class="card p-3">
+<div class="mb-3"><label>Hermano (no cambia):</label><input class="form-control" value="{{ d.hermano_nom }}" disabled></div>
+<div class="mb-3"><label>Líder:</label>
+<select name="lider" class="form-select">{% for l in lideres %}<option value="{{l.id}}" {% if lider_previo_visible and l.id==d.lider_id %}selected{% endif %}>{{l.nombre_completo}}</option>{% endfor %}</select></div>
+<div class="mb-3"><label>Periodicidad:</label>
+<select name="per" class="form-select"><option value="">--</option>{% for p in per %}<option value="{{p.id}}" {% if d.periodicidad_id==p.id %}selected{% endif %}>{{p.nombre}}</option>{% endfor %}</select></div>
+<div class="mb-3"><label><input type="checkbox" name="activo" checked> Discípulo activo</label></div>
+<div class="mb-3"><label>Fecha de activación:</label><input type="date" name="fecha" class="form-control" value="{{ hoy.isoformat() }}" required></div>
+<div class="mb-3"><label>Observación:</label><input name="obs" class="form-control" value=""></div>
+<button class="btn btn-success">🔄 Reactivar</button> <a href="/discipulado" class="btn btn-secondary">Cancelar</a>
+</form>{% endblock %}

@@ -5,12 +5,17 @@
 <div class="col-md-3"><select class="form-select" name="f12" onchange="this.form.submit()" title="Filtra por cobertura del líder"><option value="">Todos los 12</option>
 {% if tipos12 %}{% for t in tipos12 %}<option value="{{t.nombre}}" {% if f12==t.nombre %}selected{% endif %}>{{t.nombre}}</option>{% endfor %}{% endif %}
 <option value="NINGUNO" {% if f12=='NINGUNO' %}selected{% endif %}>NINGUNO</option></select></div>
-<div class="col-auto"><button class="btn btn-primary">🔍 Consultar</button> {% if tiene_permiso('discipulado','crear') %}<a class="btn btn-success" href="/discipulado/nuevo">➕ Ingresar</a>{% endif %} <a class="btn btn-outline-success" href="/discipulado?export=excel&q={{texto}}&f12={{f12}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/discipulado?export=pdf&q={{texto}}&f12={{f12}}" target="_blank">PDF</a></div></form>
+<div class="col-md-3"><select class="form-select" name="est" onchange="this.form.submit()" title="Filtra por estado de la asignación"><option value="" {% if est=='' %}selected{% endif %}>Todos los estados</option><option value="vigentes" {% if est=='vigentes' %}selected{% endif %}>Solo vigentes</option><option value="cerrados" {% if est=='cerrados' %}selected{% endif %}>Solo cerrados (historial)</option></select></div>
+<div class="col-auto"><button class="btn btn-primary">🔍 Consultar</button> {% if tiene_permiso('discipulado','crear') %}<a class="btn btn-success" href="/discipulado/nuevo">➕ Ingresar</a>{% endif %} <a class="btn btn-outline-success" href="/discipulado?export=excel&q={{texto}}&f12={{f12}}&est={{est}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/discipulado?export=pdf&q={{texto}}&f12={{f12}}&est={{est}}" target="_blank">PDF</a></div></form>
 <table class="table table-striped"><tr><th>Hermano</th><th>Líder</th><th>Tipo 12 líder</th><th>Periodicidad</th><th>Activo</th><th>Estado</th><th>Acciones</th></tr>
-{% for d in rows %}<tr><td>{{d.hermano}}</td><td>{{d.lider}}</td><td><span class="badge badge-12 text-white">{{d.tipo_12}}</span></td><td>{{d.periodicidad}}</td><td>{{d.es_discipulo_activo}}</td><td>{{d.fecha_fin or 'VIGENTE'}}</td>
+{% for d in rows %}<tr><td>{{d.hermano}}</td><td>{{d.lider}}</td><td><span class="badge badge-12 text-white">{{d.tipo_12}}</span></td><td>{{d.periodicidad}}</td>
+<td>{% if d.es_discipulo_activo and d.hermano_activo %}Sí{% else %}<span class="text-muted" title="{{ 'El hermano está inactivo' if not d.hermano_activo else 'Discípulo marcado como inactivo' }}">No</span>{% endif %}</td>
+<td>{% if d.fecha_fin %}<span class="badge bg-secondary">CERRADO {{ d.fecha_fin }}</span>{% else %}<span class="badge bg-success">VIGENTE · desde {{ d.fecha_asignacion }}</span>{% endif %}</td>
 <td class="text-nowrap">{% if not d.fecha_fin %}
 {% if tiene_permiso('discipulado','editar') %}<a class="btn btn-sm btn-outline-primary" href="/discipulado/{{d.id}}/editar" title="Modificar">✏️</a> <form method="post" action="/discipulado/{{d.id}}/cerrar" style="display:inline"><button class="btn btn-sm btn-outline-secondary" title="Cerrar">🔒</button></form>{% endif %}
+{% else %}
+{% if tiene_permiso('discipulado','editar') %}<a class="btn btn-sm btn-outline-success" href="/discipulado/{{d.id}}/reactivar" title="Reactivar (vuelta a MCCI)">🔄</a>{% endif %}
 {% endif %}
 {% if tiene_permiso('discipulado','eliminar') %}<form method="post" action="/discipulado/{{d.id}}/eliminar" style="display:inline" data-confirm="¿Eliminar asignación?"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}
 </td></tr>{% endfor %}</table>
-<p class="text-muted small">Mostrando {{rows|length}} registros.</p></div>{% endblock %}
+<p class="text-muted small">Mostrando {{rows|length}} registros.{% if est=='vigentes' %} Filtro: solo vigentes.{% elif est=='cerrados' %} Filtro: solo cerrados (historial).{% endif %}</p></div>{% endblock %}

@@ -1636,9 +1636,9 @@ def hermanos():
         base_params = (f"%{texto}%", f"%{texto}%", f"%{texto}%")
     else:
         base_params = (f"%{texto}%", f"%{texto}%")
-    rows = q(f"SELECT id, codigo, nombre_completo, comuna, region, correo, telefono, tipo_hermano, activo, motivo_salida, fecha_baja FROM v_hermanos_completo WHERE {base_where} {where_extra} {fi} ORDER BY nombre_completo LIMIT 1000",
+    rows = q(f"SELECT id, codigo, nombre_completo, comuna, region, correo, telefono, tipo_hermano, activo, motivo_salida, fecha_baja, (SELECT hh.fecha_activacion FROM hermanos hh WHERE hh.id = v_hermanos_completo.id) AS fecha_activacion FROM v_hermanos_completo WHERE {base_where} {where_extra} {fi} ORDER BY nombre_completo LIMIT 1000",
              base_params + tuple(params_extra) + tuple(pi))
-    if exp == "excel": return to_excel(rows, ["codigo", "nombre_completo", "tipo_hermano", "comuna", "region", "correo", "telefono", "activo", "motivo_salida", "fecha_baja"], "hermanos.xlsx")
+    if exp == "excel": return to_excel(rows, ["codigo", "nombre_completo", "tipo_hermano", "comuna", "region", "correo", "telefono", "activo", "motivo_salida", "fecha_baja", "fecha_activacion"], "hermanos.xlsx")
     if exp == "pdf": return to_pdf("Hermanos MCCI", rows, ["codigo", "nombre_completo", "tipo_hermano", "comuna", "region"], "hermanos.pdf")
     tipos_hermano = get_catalogo("catalogo_tipo_hermano")
     return render_template("hermanos.html", rows=rows, texto=texto, ftipo=ftipo, festado=festado, tipos_hermano=tipos_hermano)
@@ -1814,10 +1814,13 @@ def hermano_toggle(hid):
         log_audit("EDITAR","hermanos", f"baja id={hid} motivo={motivo}")
         flash(f"Hermano dado de baja (inactivo) con código conservado. Motivo: {motivo}", "ok")
     else:
-        # Reactivar
-        q("UPDATE hermanos SET activo=true, fecha_baja=NULL, motivo_salida=NULL WHERE id=%s", (hid,), commit=True)
-        log_audit("EDITAR","hermanos", f"reactiva id={hid}")
-        flash("Hermano reactivado", "ok")
+        # Reactivar (vuelta a MCCI): se registra la FECHA DE ACTIVACIÓN
+        # (el historial de bajas queda en la auditoría y en discipulado)
+        fecha_act = hoy_chile()
+        q("UPDATE hermanos SET activo=true, fecha_activacion=%s, fecha_baja=NULL, motivo_salida=NULL WHERE id=%s",
+          (fecha_act, hid), commit=True)
+        log_audit("EDITAR","hermanos", f"reactiva id={hid} fecha_activacion={fecha_act}")
+        flash(f"Hermano reactivado (fecha de activación: {fecha_act})", "ok")
     return redirect(url_for("hermanos"))
 
 @app.post("/hermanos/<int:hid>/eliminar")
@@ -2045,20 +2048,24 @@ def discipulado():
     exp = request.args.get("export", "")
     texto = request.args.get("q", "")
     f12 = request.args.get("f12", "")
+    # Filtro por estado: "" = todos | "vigentes" | "cerrados" (historial)
+    est = request.args.get("est", "")
+    fe = {"vigentes": " AND d.fecha_fin IS NULL",
+          "cerrados": " AND d.fecha_fin IS NOT NULL"}.get(est, "")
     fi, pi = filtro_igl("l")
     base = f"""FROM discipulado d JOIN hermanos h ON h.id=d.hermano_id JOIN lideres l ON l.id=d.lider_id
         JOIN hermanos hl ON hl.id=l.hermano_id LEFT JOIN periodicidad_celula p ON p.id=d.periodicidad_id
-        WHERE (%s='' OR l.tipo_12=%s) AND (h.nombre_completo ILIKE %s OR hl.nombre_completo ILIKE %s){fi}"""
+        WHERE (%s='' OR l.tipo_12=%s) AND (h.nombre_completo ILIKE %s OR hl.nombre_completo ILIKE %s){fi}{fe}"""
     params = (f12, f12 or None, f"%{texto}%", f"%{texto}%") + tuple(pi)
     rows = q(f"""SELECT h.nombre_completo AS hermano,hl.nombre_completo AS lider,p.nombre AS periodicidad,
-        l.tipo_12,d.es_discipulo_activo,d.fecha_asignacion,d.fecha_fin {base}
+        l.tipo_12,d.es_discipulo_activo,h.activo AS hermano_activo,d.fecha_asignacion,d.fecha_fin {base}
         ORDER BY d.fecha_fin NULLS FIRST, d.fecha_asignacion DESC LIMIT 1000""", params)
     if exp == "excel": return to_excel(rows, ["hermano", "lider", "periodicidad", "tipo_12", "es_discipulo_activo", "fecha_asignacion", "fecha_fin"], "discipulado.xlsx")
     if exp == "pdf": return to_pdf("Discipulado MCCI", rows, ["hermano", "lider", "tipo_12"], "discipulado.pdf")
     full = q(f"""SELECT d.id,h.nombre_completo AS hermano,hl.nombre_completo AS lider,p.nombre AS periodicidad,
-        l.tipo_12,d.es_discipulo_activo,d.fecha_asignacion,d.fecha_fin {base}
+        l.tipo_12,d.es_discipulo_activo,h.activo AS hermano_activo,d.fecha_asignacion,d.fecha_fin {base}
         ORDER BY d.fecha_fin NULLS FIRST, d.fecha_asignacion DESC LIMIT 1000""", params)
-    return render_template("discipulado.html", rows=full, texto=texto, f12=f12,
+    return render_template("discipulado.html", rows=full, texto=texto, f12=f12, est=est,
         tipos12=get_catalogo("catalogo_tipo12"))
 
 @app.get("/discipulado/nuevo")
@@ -2136,6 +2143,85 @@ def disc_editar_guardar(did):
         log_audit("EDITAR","discipulado", f"id={did}")
         flash("Asignación modificada", "ok")
     except Exception as e: flash(f"Error: {e}", "error")
+    return redirect(url_for("discipulado"))
+
+# ---------- REACTIVAR ASIGNACIÓN CERRADA (vuelta a MCCI) ----------
+@app.get("/discipulado/<int:did>/reactivar")
+@login_req
+@permiso_req("discipulado", "editar")
+def disc_reactivar(did):
+    """Formulario para reactivar una asignación cerrada: se elige la FECHA DE
+    ACTIVACIÓN, se crea una fila vigente nueva (la cerrada queda como historial)
+    y, si el hermano estaba de baja, se da de alta con esa misma fecha."""
+    if not exigir_igl("discipulado", did):
+        flash("Esa asignacion no es de tu iglesia", "error"); return redirect(url_for("discipulado"))
+    d = q("""SELECT d.*, h.nombre_completo AS hermano_nom, h.activo AS hermano_activo,
+                    hl.nombre_completo AS lider_anterior
+             FROM discipulado d JOIN hermanos h ON h.id=d.hermano_id
+             JOIN lideres l ON l.id=d.lider_id JOIN hermanos hl ON hl.id=l.hermano_id
+             WHERE d.id=%s""", (did,), one=True)
+    if not d:
+        flash("No encontrado", "error"); return redirect(url_for("discipulado"))
+    if not d["fecha_fin"]:
+        flash("Esa asignación sigue vigente: edítala o ciérrala desde la lista", "error")
+        return redirect(url_for("discipulado"))
+    fl, pl = filtro_igl("l")
+    lideres = q(f"""SELECT l.id,h.nombre_completo FROM lideres l
+        JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo{fl} ORDER BY 2""", tuple(pl))
+    return render_template("disc_reactivar.html", d=d, lideres=lideres,
+        per=q("SELECT * FROM periodicidad_celula ORDER BY 1"),
+        lider_previo_visible=any(x["id"] == d["lider_id"] for x in lideres),
+        hoy=hoy_chile())
+
+@app.post("/discipulado/<int:did>/reactivar")
+@login_req
+@permiso_req("discipulado", "editar")
+def disc_reactivar_guardar(did):
+    if not exigir_igl("discipulado", did):
+        flash("Esa asignacion no es de tu iglesia", "error"); return redirect(url_for("discipulado"))
+    f = request.form
+    act = q("SELECT * FROM discipulado WHERE id=%s", (did,), one=True)
+    if not act:
+        flash("No encontrado", "error"); return redirect(url_for("discipulado"))
+    if not act["fecha_fin"]:
+        flash("Esa asignación sigue vigente; edítala o ciérrala desde la lista", "error")
+        return redirect(url_for("discipulado"))
+    try:
+        fecha_d = date.fromisoformat((f.get("fecha") or "").strip())
+    except ValueError:
+        flash("Indica una fecha de activación válida (AAAA-MM-DD)", "error")
+        return redirect(url_for("discipulado"))
+    if fecha_d < act["fecha_fin"]:
+        flash(f"La fecha de activación no puede ser anterior al cierre ({act['fecha_fin']})", "error")
+        return redirect(url_for("discipulado"))
+    vig = q("""SELECT hl.nombre_completo FROM discipulado d
+               JOIN lideres l ON l.id=d.lider_id JOIN hermanos hl ON hl.id=l.hermano_id
+               WHERE d.hermano_id=%s AND d.fecha_fin IS NULL""", (act["hermano_id"],), one=True)
+    if vig:
+        flash(f"Ya tiene una asignación vigente (con {vig['nombre_completo']}); "
+              "ciérrala antes de reactivar otra", "error")
+        return redirect(url_for("discipulado"))
+    lid = f.get("lider") or act["lider_id"]
+    if not exigir_igl("lideres", lid):
+        flash("El líder elegido no es de tu iglesia", "error"); return redirect(url_for("discipulado"))
+    try:
+        q("""INSERT INTO discipulado(hermano_id,lider_id,es_discipulo_activo,periodicidad_id,
+               observacion,fecha_asignacion) VALUES(%s,%s,%s,%s,%s,%s)""",
+          (act["hermano_id"], lid, f.get("activo") == "on", f.get("per") or None,
+           (f.get("obs") or "").strip() or None, fecha_d), commit=True)
+        h = q("SELECT activo FROM hermanos WHERE id=%s", (act["hermano_id"],), one=True)
+        reactivado = bool(h and not h["activo"])
+        if reactivado:
+            q("""UPDATE hermanos SET activo=true, fecha_activacion=%s,
+                 fecha_baja=NULL, motivo_salida=NULL WHERE id=%s""",
+              (fecha_d, act["hermano_id"]), commit=True)
+        log_audit("REACTIVAR", "discipulado",
+                  f"d={did} h={act['hermano_id']} l={lid} fecha={fecha_d} "
+                  f"hermano={'si' if reactivado else 'no'}")
+        flash(f"Asignación reactivada con fecha {fecha_d}"
+              + (" y hermano dado de alta" if reactivado else ""), "ok")
+    except Exception as e:
+        flash(f"Error: {e}", "error")
     return redirect(url_for("discipulado"))
 
 @app.post("/discipulado/<int:did>/eliminar")
