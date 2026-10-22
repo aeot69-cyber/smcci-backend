@@ -3252,6 +3252,9 @@ def reportes():
     # NUEVO: Resumen de Informes de Célula por líder, pastor y red
     # (el pastor es el REAL: sube la cadena de líder_padre_id hasta una
     #  PASTORA / PASTOR / APOSTOL, no solo el padre directo)
+    # El orden es JERÁRQUICO: apóstoles → pastores → pastoras → resto;
+    # dentro de cada grupo, por red y nombre. La web y el Excel/PDF usan
+    # esta misma lista, así que los tres coinciden.
     r["celulas_resumen"] = q(f"""{_SQL_PASTOR_DE}
         SELECT 
             l.id AS lider_id,
@@ -3272,7 +3275,8 @@ def reportes():
         LEFT JOIN celulas_informe ci ON ci.lider_id = l.id
         WHERE l.activo{fl}
         GROUP BY l.id, h.nombre_completo, l.red, hp.nombre_completo
-        ORDER BY l.red, h.nombre_completo
+        ORDER BY CASE l.rol_lider WHEN 'APOSTOL' THEN 1 WHEN 'PASTOR' THEN 2
+                  WHEN 'PASTORA' THEN 3 ELSE 4 END, l.red, h.nombre_completo
     """, tuple(pl))
     # Resumen agrupado por pastor (es_pastor=true O rol pastoral: APOSTOL / PASTOR / PASTORA),
     # subiendo la cadena de líder_padre_id si el líder está bajo otro líder.
