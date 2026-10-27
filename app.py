@@ -18,6 +18,9 @@ from email.mime.multipart import MIMEMultipart
 
 load_dotenv()
 app = Flask(__name__)
+# Límite de subida: el consolidado de visitas pesa ~170KB; 16MB deja holgado
+# y evita consumir memoria con archivos gigantes.
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 # Debug mode en desarrollo local
 if os.environ.get("FLASK_ENV") == "development":
     app.debug = True
@@ -2614,6 +2617,244 @@ def visita_eliminar(vid):
     q("DELETE FROM visitas WHERE id=%s", (vid,), commit=True)
     log_audit("ELIMINAR","visitas", f"id={vid}")
     flash("Visita eliminada", "ok")
+    return redirect(url_for("visitas"))
+
+# ---------- IMPORTACIÓN EXCEL DE VISITAS (consolidado de llamados) ----------
+import json as _json, uuid as _uuid, re as _re, datetime as _dt, unicodedata as _ud
+
+def _norm_txt(s):
+    """Texto normalizado para comparar: sin acentos, minúsculas, espacios simples."""
+    s = " ".join((s or "").strip().split())
+    return "".join(c for c in _ud.normalize("NFD", s) if _ud.category(c) != "Mn").lower()
+
+# Regiones de comunas que aparecen en el archivo pero NO son de la RM
+# (se agregan al catálogo con su región real; el resto se asume RM).
+_COMUNA_REGION_EXTRA = {"rengo": 8, "linares": 9}
+_REGION_RM = 7
+
+def _parsear_excel_visitas(stream, igl):
+    """Parsea el Excel de consolidación de llamados (hoja única, cabeceras fijas)
+    y retorna (filas, resumen) sin tocar la BD de visitas. Cada fila sale lista
+    para insertar, con 'avisos' (dato extraño), 'omitida' (duplicada persona+fecha
+    ya en BD) o 'bloqueante' (sin NOMBRE → no se importa nunca)."""
+    from openpyxl import load_workbook
+    wb = load_workbook(stream, read_only=True, data_only=True)
+    ws = wb[wb.sheetnames[0]]
+    datos = list(ws.iter_rows(values_only=True))
+    wb.close()
+    if not datos:
+        raise ValueError("El archivo no tiene filas")
+    cab = [str(x).strip() if x is not None else "" for x in datos[0][:20]]
+    def idx(p):
+        for j, c in enumerate(cab):
+            if c == p or c.startswith(p):
+                return j
+        return None
+    col = {k: idx(p) for k, p in (
+        ("encargado", "ENCARGADO CONTACTO"), ("nombre", "NOMBRE"), ("apellido", "APELLIDO"),
+        ("edad", "EDAD"), ("sexo", "SEXO"), ("fecha", "FECHA"), ("telefono", "CONTACTO"),
+        ("direccion", "DIRECCION"), ("comuna", "COMUNA"), ("comollego", "COMO LLEGO"),
+        ("invito", "QUIEN LO INVITO"), ("asiste", "ASISTE A CELULA"), ("peticion", "PETICIÓN DE ORACIÓN"),
+        ("obs", "OBSERVACIÓN"), ("ingresado", "INGRESADO POR"), ("culto", "CULTO"))}
+    faltan = [p for p in ("nombre", "apellido", "fecha", "telefono") if col.get(p) is None]
+    if faltan:
+        raise ValueError("Faltan columnas obligatorias del consolidado: " + ", ".join(faltan))
+
+    def txt(f, k):
+        j = col[k]
+        if j is None or j >= len(f) or f[j] is None:
+            return ""
+        v = f[j]
+        if isinstance(v, _dt.datetime):
+            return v.strftime("%Y-%m-%d")
+        if isinstance(v, _dt.date):
+            return v.isoformat()
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return " ".join(str(v).strip().split())
+
+    hoy = hoy_chile()
+    com_map = {_norm_txt(r["nombre"]): r["id"] for r in q("SELECT id, nombre FROM comunas")}
+    existentes = {(r["n"].upper(), str(r["f"])) for r in q(
+        "SELECT nombre_completo AS n, fecha_visita AS f FROM visitas WHERE iglesia_id=%s", (igl,))}
+    filas, vistos = [], set()
+    for num, f in enumerate(datos[1:], start=2):
+        if not any(x is not None and str(x).strip() for x in f[:16]):
+            continue
+        nom, ape = txt(f, "nombre"), txt(f, "apellido")
+        completo = (nom + " " + ape).strip()
+        avisos, bloqueante = [], False
+        if not nom:
+            bloqueante = True
+            avisos.append("sin NOMBRE: fila no importable")
+        elif not ape:
+            avisos.append("sin apellido")
+        # fecha de visita
+        jf = col["fecha"]
+        raw = f[jf] if jf is not None and jf < len(f) else None
+        fecha = None
+        if isinstance(raw, _dt.datetime): fecha = raw.date()
+        elif isinstance(raw, _dt.date): fecha = raw
+        elif raw is not None and str(raw).strip():
+            s = str(raw).strip()
+            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+                try: fecha = _dt.datetime.strptime(s, fmt).date(); break
+                except ValueError: pass
+            if fecha is None: avisos.append("fecha ilegible (se usa hoy): %s" % s[:20])
+        else:
+            avisos.append("fecha vacía (se usa hoy)")
+        if fecha is None: fecha = hoy
+        if fecha > hoy + _dt.timedelta(days=1): avisos.append("fecha futura: %s" % fecha)
+        if fecha < _dt.date(2015, 1, 1): avisos.append("fecha muy antigua: %s" % fecha)
+        sexo = txt(f, "sexo").upper()
+        if sexo and sexo not in ("M", "F"): avisos.append("sexo raro: %s" % sexo[:10])
+        if sexo not in ("M", "F"): sexo = None
+        edad = None
+        e = txt(f, "edad")
+        if e:
+            try:
+                edad = int(float(e))
+                if not (0 <= edad <= 110):
+                    avisos.append("edad fuera de rango: %s" % e[:10]); edad = None
+            except ValueError:
+                avisos.append("edad ilegible: %s" % e[:10])
+        tel = txt(f, "telefono")
+        if not tel: avisos.append("sin teléfono")
+        elif not _re.fullmatch(r"[\d\s\-+()]{8,15}", tel):
+            avisos.append("teléfono con texto: %s" % tel[:30])
+        comuna_txt = txt(f, "comuna")
+        comuna_id = com_map.get(_norm_txt(comuna_txt)) if comuna_txt else None
+        comuna_nueva = None
+        if not comuna_txt:
+            avisos.append("sin comuna")
+        elif comuna_id is None:
+            comuna_nueva = comuna_txt[:100]
+            reg = _COMUNA_REGION_EXTRA.get(_norm_txt(comuna_txt), _REGION_RM)
+            avisos.append("comuna fuera de catálogo: se agregará «%s» (región %d)" % (comuna_txt[:40], reg))
+        como_llego = txt(f, "comollego")[:150] or None
+        asiste = txt(f, "asiste").upper()[:30] or None
+        if asiste and asiste not in ("SI", "NO", "EN CONSOLIDACIÓN", "DESISTE"):
+            avisos.append("valor raro en asiste a célula: %s" % asiste[:20])
+        clave = (completo.upper(), str(fecha))
+        omitida = False
+        if clave in existentes:
+            omitida = True
+            avisos.append("ya existe en la BD (misma persona y fecha): se omitirá")
+        elif clave in vistos:
+            avisos.append("repetida en el archivo (se omitirá al importar)")
+        vistos.add(clave)
+        filas.append({
+            "fila": num, "nombre_completo": completo[:200], "fecha_visita": str(fecha),
+            "telefono": tel[:20] or None, "direccion": txt(f, "direccion")[:200] or None,
+            "comuna_id": comuna_id, "comuna_nueva": comuna_nueva,
+            "invitado_por_texto": txt(f, "invito")[:150] or None,
+            "motivo_oracion": txt(f, "peticion") or "No especificado",
+            "observacion": txt(f, "obs") or None,
+            "responsable": txt(f, "ingresado")[:150] or None,
+            "encargado_contacto": txt(f, "encargado")[:150] or None,
+            "edad": edad, "sexo": sexo, "culto": txt(f, "culto")[:60] or None,
+            "como_llego": como_llego, "asiste_celula": asiste,
+            "bloqueante": bloqueante, "omitida": omitida, "avisos": avisos,
+        })
+    importar = [x for x in filas if not x["bloqueante"] and not x["omitida"]]
+    resumen = {
+        "total": len(filas),
+        "importar": len(importar),
+        "omitidas": sum(1 for x in filas if x["omitida"]),
+        "bloqueantes": sum(1 for x in filas if x["bloqueante"]),
+        "con_aviso": sum(1 for x in importar if x["avisos"]),
+        "comunas_nuevas": sorted({x["comuna_nueva"] for x in filas if x["comuna_nueva"]}),
+    }
+    return filas, resumen
+
+@app.route("/visitas/importar", methods=["GET", "POST"])
+@login_req
+@permiso_req("visitas", "crear")
+def visitas_importar():
+    """Subir el Excel de consolidación de llamados y cargarlo en `visitas`.
+    Flujo en dos pasos: subir → pantalla de revisión (avisos/errores/duplicados)
+    → confirmar. En confirmar se inserta todo lo no bloqueante, se omiten los
+    duplicados (persona+fecha+iglesia) y se agregan comunas faltantes al catálogo."""
+    igl, _ = iglesia_actual()
+    igl = igl if igl is not None else 1
+    if request.method == "POST" and "archivo" in request.files and request.files["archivo"].filename:
+        arc = request.files["archivo"]
+        if not arc.filename.lower().endswith(".xlsx"):
+            flash("Solo se pueden importar archivos .xlsx (Excel)", "error")
+            return redirect(url_for("visitas_importar"))
+        try:
+            filas, resumen = _parsear_excel_visitas(arc.stream, igl)
+        except Exception as e:
+            flash("No se pudo leer el Excel: %s" % e, "error")
+            return redirect(url_for("visitas_importar"))
+        token = str(_uuid.uuid4())
+        try:
+            q("DELETE FROM visitas_import_tmp WHERE creado_en < now() - interval '2 hours'", commit=True)
+            q("""INSERT INTO visitas_import_tmp(token, usuario_id, iglesia_id, nombre_archivo, filas)
+                 VALUES(%s,%s,%s,%s,%s::jsonb)""",
+              (token, session.get("uid"), igl, arc.filename,
+               _json.dumps(filas, ensure_ascii=False)), commit=True)
+        except Exception as e:
+            flash("No se pudo preparar la importación: %s" % e, "error")
+            return redirect(url_for("visitas_importar"))
+        return render_template("visitas_importar.html", resumen=resumen, filas=filas,
+                               token=token, archivo=arc.filename)
+    if request.method != "POST":
+        return render_template("visitas_importar.html")
+    # Confirmación: el token apunta al parseo guardado (subido por esta iglesia)
+    token = (request.form.get("token") or "").strip()
+    tmp = q("SELECT * FROM visitas_import_tmp WHERE token=%s AND iglesia_id=%s",
+            (token, igl), one=True) if token else None
+    if not tmp:
+        flash("La importación expiró: vuelve a subir el archivo", "error")
+        return redirect(url_for("visitas_importar"))
+    filas = tmp["filas"] if isinstance(tmp["filas"], list) else _json.loads(tmp["filas"])
+    c = db(); imp = omi = blo = 0
+    try:
+        with c.cursor() as cur:
+            # comunas faltantes → catálogo (idempotente por (nombre, región))
+            for cn in sorted({x["comuna_nueva"] for x in filas if x.get("comuna_nueva")}):
+                reg = _COMUNA_REGION_EXTRA.get(_norm_txt(cn), _REGION_RM)
+                cur.execute("INSERT INTO comunas(nombre, region_id) VALUES(%s,%s) "
+                            "ON CONFLICT (nombre, region_id) DO NOTHING", (cn[:100], reg))
+            cur.execute("SELECT nombre, id FROM comunas")
+            com_map = {_norm_txt(r["nombre"]): r["id"] for r in cur.fetchall()}
+            for x in filas:
+                if x.get("bloqueante"):
+                    blo += 1; continue
+                cur.execute("SELECT 1 FROM visitas WHERE UPPER(nombre_completo)=%s "
+                            "AND fecha_visita=%s AND iglesia_id=%s",
+                            (x["nombre_completo"].upper(), x["fecha_visita"], igl))
+                if cur.fetchone():
+                    omi += 1; continue
+                cid = x.get("comuna_id") or (com_map.get(_norm_txt(x["comuna_nueva"]))
+                                             if x.get("comuna_nueva") else None)
+                cur.execute("""INSERT INTO visitas(rut, nombre_completo, direccion, telefono, correo,
+                    comuna_id, invitado_por_id, invitado_por_texto, fecha_visita, motivo_oracion,
+                    estado, responsable, observacion, iglesia_id, edad, sexo, culto, como_llego,
+                    asiste_celula, encargado_contacto)
+                    VALUES(NULL,%s,%s,%s,NULL,%s,NULL,%s,%s,%s,'PENDIENTE',%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (x["nombre_completo"], x.get("direccion"), x.get("telefono"), cid,
+                     x.get("invitado_por_texto"), x["fecha_visita"], x["motivo_oracion"],
+                     x.get("responsable"), x.get("observacion"), igl, x.get("edad"), x.get("sexo"),
+                     x.get("culto"), x.get("como_llego"), x.get("asiste_celula"), x.get("encargado_contacto")))
+                imp += 1
+            cur.execute("DELETE FROM visitas_import_tmp WHERE token=%s", (token,))
+            c.commit()
+    except Exception as e:
+        c.rollback()
+        flash("Error al importar (no se guardó nada): %s" % e, "error")
+        return redirect(url_for("visitas_importar"))
+    con_aviso = sum(1 for x in filas if not x.get("bloqueante") and x.get("avisos"))
+    log_audit("IMPORTAR", "visitas",
+              "archivo=%s iglesia=%s importadas=%d omitidas=%d bloqueantes=%d"
+              % (tmp["nombre_archivo"], igl, imp, omi, blo))
+    if imp:
+        flash("Archivo importado OK: %d visita(s) nueva(s), %d omitida(s) por duplicado, "
+              "%d bloqueada(s); %d fila(s) con avisos." % (imp, omi, blo, con_aviso), "ok")
+    else:
+        flash("Ninguna visita nueva que importar: %d omitida(s) por duplicado, %d bloqueada(s)."
+              % (omi, blo), "error")
     return redirect(url_for("visitas"))
 
 # ---------- INFORME CÉLULA ----------

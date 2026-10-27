@@ -1,0 +1,40 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3"><h4>📥 Importar visitas (Excel de consolidación de llamados)</h4>
+{% if resumen %}
+<form method="post" action="/visitas/importar">
+<input type="hidden" name="token" value="{{token}}">
+<div class="alert alert-info mb-2"><b>Vista previa de {{archivo}}</b> — nada se guarda hasta que confirmes. Revisa los avisos: los datos extraños se importan igual (quedan listados), pero las filas sin nombre no se pueden importar y las duplicadas (misma persona y fecha) se omiten.</div>
+<div class="d-flex gap-2 mb-3 flex-wrap">
+<span class="badge bg-secondary fs-6" id="n-total">{{resumen.total}} filas</span>
+<span class="badge bg-success fs-6" id="n-importar">{{resumen.importar}} a importar</span>
+<span class="badge bg-warning text-dark fs-6" id="n-omitidas">{{resumen.omitidas}} omitidas (duplicadas)</span>
+<span class="badge bg-danger fs-6" id="n-bloqueantes">{{resumen.bloqueantes}} bloqueantes</span>
+<span class="badge bg-info text-dark fs-6" id="n-con-aviso">{{resumen.con_aviso}} con avisos</span>
+</div>
+{% if resumen.comunas_nuevas %}
+<div class="alert alert-warning py-1">Se agregarán al catálogo de comunas (su iglesia podrá corregir la región después):
+{% for cn in resumen.comunas_nuevas %}<span class="badge bg-warning text-dark">{{cn}}</span> {% endfor %}</div>
+{% endif %}
+{% set con_detalle = filas|selectattr('avisos')|list %}
+{% if con_detalle %}
+<div style="overflow-x:auto; max-height:420px"><table class="table table-striped table-sm"><tr><th>Fila</th><th>Nombre</th><th>Detalle</th></tr>
+{% for x in con_detalle %}<tr><td>{{x.fila}}</td><td>{{x.nombre_completo or '(sin nombre)'}}</td>
+<td>{% if x.bloqueante %}<span class="badge bg-danger">BLOQUEANTE</span> {% elif x.omitida %}<span class="badge bg-warning text-dark">DUPLICADA</span> {% endif %}{{x.avisos|join(' · ')}}</td></tr>{% endfor %}
+</table></div>
+{% else %}
+<p class="text-success">✅ Todas las filas están limpias: sin avisos ni duplicados.</p>
+{% endif %}
+<button class="btn btn-success">✅ Confirmar importación ({{resumen.importar}} filas)</button>
+<a class="btn btn-outline-secondary" href="/visitas">Cancelar</a>
+</form>
+{% else %}
+<details class="alert alert-info"><summary><b>❓ Cómo funciona</b></summary>
+<ol class="mb-0"><li>Sube el Excel <b>.xlsx</b> del consolidado de llamados (una hoja, con las cabeceras del consolidado).</li>
+<li>El sistema revisa cada fila y te muestra una <b>vista previa</b>: cuántas se importarán, cuántas están duplicadas (misma persona y fecha ya registradas en tu iglesia), cuáles fallan (sin nombre) y qué datos extraños detectó.</li>
+<li>Recién al <b>confirmar</b> se guardan las visitas; las comunas que falten en el catálogo se agregan solas.</li></ol></details>
+<form method="post" enctype="multipart/form-data" action="/visitas/importar" class="row g-2">
+<div class="col-auto"><input class="form-control" type="file" name="archivo" accept=".xlsx" required></div>
+<div class="col-auto"><button class="btn btn-primary">📤 Subir y revisar</button> <a class="btn btn-outline-secondary" href="/visitas">Volver</a></div>
+</form>
+{% endif %}
+</div>{% endblock %}
