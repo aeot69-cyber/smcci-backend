@@ -591,6 +591,10 @@ def inject_permisos():
         menu += f"<a href='{url_list}'>🔍 Consultar</a>"
         if pk.get("puede_crear") and url_nuevo:
             menu += f"<a href='{url_nuevo}'>➕ Ingresar</a>"
+        # Módulo permanente de carga masiva de visitas (Excel del consolidado):
+        # lo ven los roles con permiso de crear en visitas (ADMIN*, SUPERADMIN).
+        if key == "visitas" and pk.get("puede_crear"):
+            menu += "<a href='/visitas/importar'>📥 Importar Excel</a>"
         if pk.get("puede_exportar"):
             menu += f"<a href='{url_list}?export=excel' target='_blank'>📊 Excel</a>"
             menu += f"<a href='{url_list}?export=pdf' target='_blank'>📄 PDF</a>"
