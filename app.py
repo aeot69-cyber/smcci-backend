@@ -2625,6 +2625,9 @@ def visita_eliminar(vid):
 
 # ---------- IMPORTACIÓN EXCEL DE VISITAS (consolidado de llamados) ----------
 import json as _json, uuid as _uuid, re as _re, datetime as _dt, unicodedata as _ud
+# Inserción en lote: una sola consulta para todo el archivo (el bucle con una
+# consulta por fila tardaba ~4 minutos con 678 filas y se caía en Render).
+from psycopg2.extras import execute_values as _execute_values
 
 def _norm_txt(s):
     """Texto normalizado para comparar: sin acentos, minúsculas, espacios simples."""
@@ -2816,33 +2819,45 @@ def visitas_importar():
     c = db(); imp = omi = blo = 0
     try:
         with c.cursor() as cur:
-            # comunas faltantes → catálogo (idempotente por (nombre, región))
-            for cn in sorted({x["comuna_nueva"] for x in filas if x.get("comuna_nueva")}):
-                reg = _COMUNA_REGION_EXTRA.get(_norm_txt(cn), _REGION_RM)
-                cur.execute("INSERT INTO comunas(nombre, region_id) VALUES(%s,%s) "
-                            "ON CONFLICT (nombre, region_id) DO NOTHING", (cn[:100], reg))
+            # comunas faltantes → catálogo en lote (idempotente por (nombre, región))
+            nuevas_com = sorted({x["comuna_nueva"] for x in filas if x.get("comuna_nueva")})
+            if nuevas_com:
+                _execute_values(cur, "INSERT INTO comunas(nombre, region_id) VALUES %s "
+                                "ON CONFLICT (nombre, region_id) DO NOTHING",
+                                [(cn[:100], _COMUNA_REGION_EXTRA.get(_norm_txt(cn), _REGION_RM))
+                                 for cn in nuevas_com], page_size=1000)
             cur.execute("SELECT nombre, id FROM comunas")
             com_map = {_norm_txt(r["nombre"]): r["id"] for r in cur.fetchall()}
+            # duplicados (persona+fecha+iglesia): UNA sola consulta con lo que ya
+            # existe + control en memoria. Igual que la comprobación por fila que
+            # había antes (que hacía 2 consultas por fila y colapsaba con archivos
+            # grandes), pero constante: las repetidas dentro del archivo también
+            # se omiten porque la clave insertada se agrega al conjunto.
+            cur.execute("SELECT nombre_completo, fecha_visita FROM visitas WHERE iglesia_id=%s", (igl,))
+            existentes = {(r["nombre_completo"].upper(), str(r["fecha_visita"])) for r in cur.fetchall()}
+            ins = []
             for x in filas:
                 if x.get("bloqueante"):
                     blo += 1; continue
-                cur.execute("SELECT 1 FROM visitas WHERE UPPER(nombre_completo)=%s "
-                            "AND fecha_visita=%s AND iglesia_id=%s",
-                            (x["nombre_completo"].upper(), x["fecha_visita"], igl))
-                if cur.fetchone():
+                clave = (x["nombre_completo"].upper(), x["fecha_visita"])
+                if clave in existentes:
                     omi += 1; continue
+                existentes.add(clave)
                 cid = x.get("comuna_id") or (com_map.get(_norm_txt(x["comuna_nueva"]))
                                              if x.get("comuna_nueva") else None)
-                cur.execute("""INSERT INTO visitas(rut, nombre_completo, direccion, telefono, correo,
-                    comuna_id, invitado_por_id, invitado_por_texto, fecha_visita, motivo_oracion,
+                ins.append((None, x["nombre_completo"], x.get("direccion"), x.get("telefono"),
+                            None, cid, None, x.get("invitado_por_texto"), x["fecha_visita"],
+                            x["motivo_oracion"], "PENDIENTE", x.get("responsable"),
+                            x.get("observacion"), igl, x.get("edad"), x.get("sexo"),
+                            x.get("culto"), x.get("como_llego"), x.get("asiste_celula"),
+                            x.get("encargado_contacto")))
+            if ins:
+                # todo el lote en UNA consulta (execute_values), no una por fila
+                _execute_values(cur, """INSERT INTO visitas(rut, nombre_completo, direccion, telefono,
+                    correo, comuna_id, invitado_por_id, invitado_por_texto, fecha_visita, motivo_oracion,
                     estado, responsable, observacion, iglesia_id, edad, sexo, culto, como_llego,
-                    asiste_celula, encargado_contacto)
-                    VALUES(NULL,%s,%s,%s,NULL,%s,NULL,%s,%s,%s,'PENDIENTE',%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (x["nombre_completo"], x.get("direccion"), x.get("telefono"), cid,
-                     x.get("invitado_por_texto"), x["fecha_visita"], x["motivo_oracion"],
-                     x.get("responsable"), x.get("observacion"), igl, x.get("edad"), x.get("sexo"),
-                     x.get("culto"), x.get("como_llego"), x.get("asiste_celula"), x.get("encargado_contacto")))
-                imp += 1
+                    asiste_celula, encargado_contacto) VALUES %s""", ins, page_size=1000)
+                imp = len(ins)
             cur.execute("DELETE FROM visitas_import_tmp WHERE token=%s", (token,))
             c.commit()
     except Exception as e:
