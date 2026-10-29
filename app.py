@@ -95,6 +95,13 @@ def db():
             conn = psycopg2.connect(host=u.hostname, port=u.port or 5432, dbname=u.path.lstrip("/"), user=u.username, password=u.password, sslmode=sslmode, cursor_factory=RealDictCursor, connect_timeout=5)
             try: g._db_conn = conn
             except RuntimeError: pass
+            # Zona horaria Chile: así created_at (timestamptz) se muestra y se
+            # trunca a fecha en hora local, no en UTC. Complementa hoy_chile().
+            try:
+                with conn.cursor() as _tzcur:
+                    _tzcur.execute("SET TIME ZONE 'America/Santiago'")
+            except Exception:
+                pass
             return conn
         except Exception as e:
             last_err = e
@@ -107,6 +114,13 @@ def db():
             conn = psycopg2.connect(host=host, port=os.environ.get("DB_PORT", "5432"), dbname=os.environ.get("DB_NAME", "Iglesia_MCCI"), user=os.environ.get("DB_USER"), password=pwd, cursor_factory=RealDictCursor, connect_timeout=5)
             try: g._db_conn = conn
             except RuntimeError: pass
+            # Zona horaria Chile: así created_at (timestamptz) se muestra y se
+            # trunca a fecha en hora local, no en UTC. Complementa hoy_chile().
+            try:
+                with conn.cursor() as _tzcur:
+                    _tzcur.execute("SET TIME ZONE 'America/Santiago'")
+            except Exception:
+                pass
             return conn
         except Exception as e:
             last_err = e
@@ -4299,7 +4313,7 @@ def configuracion():
     # Errores al guardar informes de célula (solo SUPERADMIN/ADMIN los revisan)
     errores_informes = []
     if session.get("rol") in ("SUPERADMIN", "ADMIN"):
-        errores_informes = q("""SELECT a.id, a.created_at, a.username, a.detalle, a.ip, i.nombre AS iglesia
+        errores_informes = q("""SELECT a.id, (a.created_at AT TIME ZONE 'America/Santiago') AS created_at, a.username, a.detalle, a.ip, i.nombre AS iglesia
             FROM auditoria a LEFT JOIN iglesias i ON i.id=a.iglesia_id
             WHERE a.accion='ERROR_GUARDADO' AND a.modulo='celulas'
             ORDER BY a.created_at DESC LIMIT 100""")
