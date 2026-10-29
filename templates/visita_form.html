@@ -1,15 +1,47 @@
-{% extends "base.html" %}{% block b %}<div class="card p-4 col-md-8"><h4>➕ Nueva Visita (culto)</h4>
+{% extends "base.html" %}{% block b %}<div class="card p-4 col-12 col-lg-10 mx-auto"><h4>{{ '✏️ Editar Visita' if v else '➕ Nueva Visita (culto)' }}</h4>
 <form method="post" class="row g-2">
-<div class="col-md-6">Nombre completo*<input class="form-control" name="nombre" required placeholder="Ej: Juan Pérez Soto"></div>
-<div class="col-md-6">Dirección<input class="form-control" name="direccion" placeholder="Calle, número, comuna"></div>
-<div class="col-md-4">Teléfono<input class="form-control" name="telefono" placeholder="+569..."></div>
-<div class="col-md-4">Correo<input class="form-control" name="correo"></div>
-<div class="col-md-4">Comuna<select class="form-select" name="comuna"><option value="">--</option>{% for c in comunas %}<option value="{{c.id}}">{{c.nombre}}</option>{% endfor %}</select></div>
-<div class="col-md-6">Invitado por (hermano)<select class="form-select" name="invitado"><option value="">--</option>{% for h in hermanos %}<option value="{{h.id}}">{{h.nombre_completo}}</option>{% endfor %}</select></div>
-<div class="col-md-6">Invitado por (externo)<input class="form-control" name="invtexto" placeholder="Nombre externo"></div>
-<div class="col-md-4">Fecha visita<input class="form-control" type="date" name="fecha"></div>
-<div class="col-md-4">Estado<select class="form-select" name="estado">{% if estados_visita %}{% for ev in estados_visita %}<option>{{ev.nombre}}</option>{% endfor %}{% else %}<option>PENDIENTE</option><option>EN SEGUIMIENTO</option><option>INTEGRADO</option><option>NO VOLVIO</option>{% endif %}</select></div>
-<div class="col-md-4">Responsable (líder)<select class="form-select" name="responsable"><option value="">--</option>{% for l in lideres %}<option>{{l.nombre_completo}}</option>{% endfor %}</select></div>
-<div class="col-12">Motivo de oración*<textarea class="form-control" name="motivo" required placeholder="Ej: salud de su madre, trabajo..."></textarea></div>
-<div class="col-12">Observación<input class="form-control" name="obs"></div>
-<div class="col-12"><button class="btn btn-success">💾 Guardar visita</button> <a class="btn btn-secondary" href="/visitas">Volver</a></div></form></div>{% endblock %}
+<div class="col-12 col-lg-6">Nombre completo*<input class="form-control" name="nombre" required placeholder="Ej: Juan Pérez Soto" value="{{ v.nombre_completo if v else '' }}"></div>
+<div class="col-6 col-lg-3">RUT<input class="form-control" name="rut" placeholder="12.345.678-9" value="{{ v.rut if v and v.rut and v.rut != 'None' else '' }}"></div>
+<div class="col-6 col-lg-3">Fecha visita<input class="form-control" type="date" name="fecha" value="{{ v.fecha_visita if v else '' }}"></div>
+<div class="col-12 col-lg-6">Dirección<input class="form-control" name="direccion" placeholder="Calle y número" value="{{ v.direccion if v and v.direccion and v.direccion != 'None' else '' }}"></div>
+<div class="col-6 col-lg-3">Teléfono<input class="form-control" name="telefono" placeholder="+569..." value="{{ v.telefono if v and v.telefono and v.telefono != 'None' else '' }}"></div>
+<div class="col-6 col-lg-3">Correo<input class="form-control" name="correo" value="{{ v.correo if v and v.correo and v.correo != 'None' else '' }}"></div>
+{% include "_comuna_picker.html" %}
+<div class="col-6 col-lg-3">Edad<input class="form-control" name="edad" type="number" min="0" max="110" value="{{ v.edad if v and v.edad is not none else '' }}"></div>
+<div class="col-6 col-lg-3">Sexo
+  <select class="form-select" name="sexo"><option value="">--</option>
+  {% for s in sexos %}<option value="{{ s.codigo }}" {% if v and v.sexo == s.codigo %}selected{% endif %}>{{ s.nombre }}</option>{% endfor %}
+  </select></div>
+<div class="col-12 col-lg-3">Estado civil
+  <select class="form-select" name="ecivil"><option value="">--</option>
+  {% for e in estados_civil %}<option value="{{ e.nombre }}" {% if v and v.estado_civil == e.nombre %}selected{% endif %}>{{ e.nombre }}</option>{% endfor %}
+  </select></div>
+<div class="col-12 col-lg-3">En qué culto fue consolidado
+  <select class="form-select" name="culto"><option value="">--</option>
+  {% for c in cultos %}<option value="{{ c.nombre }}" {% if v and v.culto == c.nombre %}selected{% endif %}>{{ c.nombre }}</option>{% endfor %}
+  {% if v and v.culto and v.culto not in cultos|map(attribute='nombre')|list %}<option value="{{ v.culto }}" selected>{{ v.culto }} (fuera del catálogo)</option>{% endif %}
+  </select></div>
+<div class="col-12 col-lg-4">Cómo llegó<input class="form-control" name="comoLlego" placeholder="Invitación, RRSS, Impacto radical..." value="{{ v.como_llego if v and v.como_llego and v.como_llego != 'None' else '' }}"></div>
+<div class="col-6 col-lg-4">Asiste a célula
+  <select class="form-select" name="asiste"><option value="">--</option>
+  {% for a in ['SI','NO','EN CONSOLIDACIÓN','DESISTE'] %}<option value="{{ a }}" {% if v and v.asiste_celula == a %}selected{% endif %}>{{ a }}</option>{% endfor %}
+  </select></div>
+<div class="col-6 col-lg-4">Encargado del contacto<input class="form-control" name="encargado" value="{{ v.encargado_contacto if v and v.encargado_contacto and v.encargado_contacto != 'None' else '' }}"></div>
+<div class="col-12 col-lg-6">Invitado por (hermano)
+  <select class="form-select" name="invitado"><option value="">--</option>
+  {% for h in hermanos %}<option value="{{ h.id }}" {% if v and v.invitado_por_id == h.id %}selected{% endif %}>{{ h.nombre_completo }}</option>{% endfor %}
+  </select></div>
+<div class="col-12 col-lg-6">Invitado por (externo)<input class="form-control" name="invtexto" placeholder="Nombre externo" value="{{ v.invitado_por_texto if v and v.invitado_por_texto and v.invitado_por_texto != 'None' else '' }}"></div>
+<div class="col-6 col-lg-4">Estado
+  <select class="form-select" name="estado">
+  {% if estados_visita %}{% for ev in estados_visita %}<option value="{{ ev.nombre }}" {% if (v and v.estado == ev.nombre) or (not v and ev.nombre == 'PENDIENTE') %}selected{% endif %}>{{ ev.nombre }}</option>{% endfor %}
+  {% else %}{% for e in ['PENDIENTE','EN SEGUIMIENTO','INTEGRADO','NO VOLVIO'] %}<option value="{{ e }}" {% if v and v.estado == e %}selected{% endif %}>{{ e }}</option>{% endfor %}{% endif %}
+  </select></div>
+<div class="col-12 col-lg-4">Responsable (líder)
+  <select class="form-select" name="responsable"><option value="">--</option>
+  {% for l in lideres %}<option value="{{ l.nombre_completo }}" {% if v and v.responsable == l.nombre_completo %}selected{% endif %}>{{ l.nombre_completo }}</option>{% endfor %}
+  {% if v and v.responsable and v.responsable not in lideres|map(attribute='nombre_completo')|list %}<option value="{{ v.responsable }}" selected>{{ v.responsable }}</option>{% endif %}
+  </select></div>
+<div class="col-12">Motivo de oración*<textarea class="form-control" name="motivo" required placeholder="Ej: salud de su madre, trabajo...">{{ v.motivo_oracion if v else '' }}</textarea></div>
+<div class="col-12">Observación<input class="form-control" name="obs" value="{{ v.observacion if v and v.observacion and v.observacion != 'None' else '' }}"></div>
+<div class="col-12"><button class="btn btn-success">💾 {{ 'Guardar cambios' if v else 'Guardar visita' }}</button> <a class="btn btn-secondary" href="/visitas">Volver</a></div></form></div>{% endblock %}

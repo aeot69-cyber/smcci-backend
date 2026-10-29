@@ -204,6 +204,7 @@ CATALOGO_FALLBACK = {
     "catalogo_estado_celula":     [("lideres", "estado_celula", "EN FORMACION")],
     "catalogo_info_enviada":      [("lideres", "info_enviada", "EN CONSULTA")],
     "catalogo_estado_visita":     [("visitas", "estado", "PENDIENTE")],
+    "catalogo_cultos":            [("visitas", "culto", None)],
     "catalogo_tipo_seguimiento":  [("seguimiento", "tipo", "LLAMADA")],
     "catalogo_tipo_hermano":      [("hermanos", "tipo_hermano", "NINGUNO")],
     "catalogo_modalidad_celula":  [("celulas_informe", "modalidad", "PRESENCIAL")],
@@ -475,7 +476,7 @@ def escanear_ayudas():
 def _ay_ovrs():
     """Cambios guardados en BD (se leen por request para verlos al instante en todas las instancias)."""
     from flask import g
-    if not hasattr(g, "_ayudas_ovr"):
+    if getattr(g, "_ayudas_ovr", None) is None:
         try:
             g._ayudas_ovr = {r["clave"]: r["texto"] for r in q("SELECT clave, texto FROM ayudas")}
         except Exception:
@@ -1098,7 +1099,7 @@ MODULOS_INFO = [
     {"key":"seguimiento","nombre":"Seguimiento"},{"key":"visitas","nombre":"Visitas"},
     {"key":"reportes","nombre":"Reportes"},{"key":"usuarios","nombre":"Usuarios"},
     {"key":"celulas","nombre":"Informe Célula"},{"key":"configuracion","nombre":"Configuración"},
-    {"key":"auditoria","nombre":"Auditoría"},
+    {"key":"comunas","nombre":"Regiones y Comunas"},{"key":"auditoria","nombre":"Auditoría"},
 ]
 ROLES_LIST = ["SUPERADMIN","ADMIN","CONSULTA"]
 
@@ -1691,13 +1692,13 @@ def _codigo_hermano(iglesia_id):
 @login_req
 @permiso_req("hermanos", "crear")
 def hermano_nuevo():
-    com = q("SELECT c.id,c.nombre,r.nombre_corto AS region FROM comunas c JOIN regiones r ON r.id=c.region_id ORDER BY c.nombre")
     fi, pi = filtro_igl()
     her = q(f"SELECT id,nombre_completo FROM hermanos WHERE activo{fi} ORDER BY 2", tuple(pi))
     sexos = get_catalogo("catalogo_sexo")
     estados_civil = get_catalogo("catalogo_estado_civil")
     tipos_hermano = get_catalogo("catalogo_tipo_hermano")
-    return render_template("hermano_form.html", h=None, comunas=com, hermanos=her, sexos=sexos, estados_civil=estados_civil, tipos_hermano=tipos_hermano)
+    return render_template("hermano_form.html", h=None, arbol=_arbol_comunas(), sel_comuna=None,
+                           hermanos=her, sexos=sexos, estados_civil=estados_civil, tipos_hermano=tipos_hermano)
 
 @app.post("/hermanos/nuevo")
 @login_req
@@ -1736,13 +1737,14 @@ def hermano_editar(hid):
     if not exigir_igl("hermanos", hid):
         flash("Ese hermano no es de tu iglesia", "error"); return redirect(url_for("hermanos"))
     h = q("SELECT * FROM hermanos WHERE id=%s", (hid,), one=True)
-    com = q("SELECT c.id,c.nombre FROM comunas c ORDER BY c.nombre")
     fi, pi = filtro_igl()
     her = q(f"SELECT id,nombre_completo FROM hermanos WHERE activo AND id!=%s{fi} ORDER BY 2", tuple([hid]) + tuple(pi))
     sexos = get_catalogo("catalogo_sexo")
     estados_civil = get_catalogo("catalogo_estado_civil")
     tipos_hermano = get_catalogo("catalogo_tipo_hermano")
-    return render_template("hermano_form.html", h=h, comunas=com, hermanos=her, sexos=sexos, estados_civil=estados_civil, tipos_hermano=tipos_hermano)
+    return render_template("hermano_form.html", h=h, arbol=_arbol_comunas(),
+                           sel_comuna=(h["comuna_id"] if h else None),
+                           hermanos=her, sexos=sexos, estados_civil=estados_civil, tipos_hermano=tipos_hermano)
 
 @app.post("/hermanos/<int:hid>/editar")
 @login_req
@@ -2503,6 +2505,38 @@ def seg_eliminar(sid):
     return redirect(url_for("seguimiento"))
 
 # ---------- VISITAS (culto) ----------
+def _arbol_comunas():
+    """Árbol región → provincia → comuna para los selectores en cascada."""
+    regs = {}
+    for r in q("""SELECT r.id AS region_id, r.nombre_corto AS region, p.id AS provincia_id,
+                         p.nombre AS provincia, c.id AS comuna_id, c.nombre AS comuna
+                    FROM regiones r
+                    JOIN provincias p ON p.region_id=r.id
+                    LEFT JOIN comunas c ON c.provincia_id=p.id
+                   ORDER BY r.id, p.nombre, c.nombre"""):
+        reg = regs.setdefault(r["region_id"], {"id": r["region_id"], "nombre": r["region"], "provincias": {}})
+        prov = reg["provincias"].setdefault(r["provincia_id"],
+                                            {"id": r["provincia_id"], "nombre": r["provincia"], "comunas": []})
+        if r["comuna_id"]:
+            prov["comunas"].append({"id": r["comuna_id"], "nombre": r["comuna"]})
+    return [{"id": v["id"], "nombre": v["nombre"], "provincias": list(v["provincias"].values())}
+            for v in regs.values()]
+
+
+def _ctx_form_visita(v=None):
+    """Datos comunes del formulario de visita (nuevo y editar)."""
+    fi, pi = filtro_igl()
+    fl, pl = filtro_igl("l")
+    return dict(v=v,
+        arbol=_arbol_comunas(), sel_comuna=(v["comuna_id"] if v else None),
+        hermanos=q(f"SELECT id,nombre_completo FROM hermanos WHERE activo{fi} ORDER BY 2", tuple(pi)),
+        lideres=q(f"SELECT h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo{fl} ORDER BY 1", tuple(pl)),
+        estados_visita=get_catalogo("catalogo_estado_visita"),
+        sexos=get_catalogo("catalogo_sexo"),
+        estados_civil=get_catalogo("catalogo_estado_civil"),
+        cultos=get_catalogo("catalogo_cultos"))
+
+
 @app.get("/visitas")
 @login_req
 @permiso_req("visitas", "leer")
@@ -2514,8 +2548,8 @@ def visitas():
     base = f"FROM v_visitas_completo WHERE (%s='' OR estado=%s) AND nombre_completo ILIKE %s{fv}"
     params = (fest, fest or None, f"%{texto}%") + tuple(pv)
     rows = q(f"SELECT * {base} ORDER BY fecha_visita DESC LIMIT 300", params)
-    if exp == "excel": return to_excel(rows, ["nombre_completo", "direccion", "telefono", "comuna", "invitado_por", "invitado_por_texto", "fecha_visita", "motivo_oracion", "estado", "responsable"], "visitas.xlsx")
-    if exp == "pdf": return to_pdf("Visitas MCCI", rows, ["nombre_completo", "telefono", "motivo_oracion", "estado"], "visitas.pdf")
+    if exp == "excel": return to_excel(rows, ["nombre_completo", "sexo", "edad", "estado_civil", "culto", "comuna", "provincia", "region", "direccion", "telefono", "invitado_por", "invitado_por_texto", "fecha_visita", "como_llego", "asiste_celula", "encargado_contacto", "motivo_oracion", "estado", "responsable"], "visitas.xlsx")
+    if exp == "pdf": return to_pdf("Visitas MCCI", rows, ["nombre_completo", "sexo", "culto", "comuna", "telefono", "motivo_oracion", "estado"], "visitas.pdf")
     lideres = q(f"""SELECT l.id, h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
         WHERE l.activo{fv.replace('iglesia_id','l.iglesia_id') if fv else ''} ORDER BY h.nombre_completo""", tuple(pv))
     estados_visita = get_catalogo("catalogo_estado_visita")
@@ -2526,13 +2560,7 @@ def visitas():
 @login_req
 @permiso_req("visitas", "crear")
 def visita_nueva():
-    fi, pi = filtro_igl()
-    fl, pl = filtro_igl("l")
-    return render_template("visita_form.html", v=None,
-        comunas=q("SELECT id,nombre FROM comunas ORDER BY nombre"),
-        hermanos=q(f"SELECT id,nombre_completo FROM hermanos WHERE activo{fi} ORDER BY 2", tuple(pi)),
-        lideres=q(f"SELECT h.nombre_completo FROM lideres l JOIN hermanos h ON h.id=l.hermano_id WHERE l.activo{fl} ORDER BY 1", tuple(pl)),
-        estados_visita=get_catalogo("catalogo_estado_visita"))
+    return render_template("visita_form.html", **_ctx_form_visita(None))
 
 @app.post("/visitas/nuevo")
 @login_req
@@ -2544,14 +2572,65 @@ def visita_crear():
     inv = f.get("invitado") or None
     if inv and not exigir_igl("hermanos", inv):
         flash("Quien invita no es de tu iglesia", "error"); return redirect(url_for("visitas"))
-    q("""INSERT INTO visitas(rut,nombre_completo,direccion,telefono,correo,comuna_id,invitado_por_id,invitado_por_texto,
-        fecha_visita,motivo_oracion,estado,responsable,observacion,iglesia_id)
-        VALUES(NULLIF(%s,''),%s,%s,%s,%s,NULLIF(%s,'')::int,NULLIF(%s,'')::int,NULLIF(%s,''),COALESCE(NULLIF(%s,'')::date,CURRENT_DATE),%s,%s,%s,%s,%s)""",
-      (f.get("rut") or None, f["nombre"].strip(), f.get("direccion"), f.get("telefono"), f.get("correo") or None, f.get("comuna") or None,
-       inv, f.get("invtexto") or None, f.get("fecha") or None, f["motivo"].strip(),
-       f.get("estado", "PENDIENTE"), f.get("responsable") or None, f.get("obs"), igl), commit=True)
-    log_audit("CREAR","visitas", f"{f.get('nombre','')}")
-    flash("Visita registrada", "ok"); return redirect(url_for("visitas"))
+    try:
+        q("""INSERT INTO visitas(rut,nombre_completo,direccion,telefono,correo,comuna_id,invitado_por_id,invitado_por_texto,
+            fecha_visita,motivo_oracion,estado,responsable,observacion,iglesia_id,edad,sexo,estado_civil,culto,
+            como_llego,asiste_celula,encargado_contacto)
+            VALUES(NULLIF(%s,''),%s,%s,%s,%s,NULLIF(%s,'')::int,NULLIF(%s,'')::int,NULLIF(%s,''),
+                   COALESCE(NULLIF(%s,'')::date,CURRENT_DATE),%s,%s,%s,%s,%s,NULLIF(%s,'')::int,
+                   NULLIF(%s,''),NULLIF(%s,''),NULLIF(%s,''),NULLIF(%s,''),NULLIF(%s,''),NULLIF(%s,''))""",
+          (f.get("rut") or None, f["nombre"].strip(), f.get("direccion"), f.get("telefono"), f.get("correo") or None,
+           f.get("comuna") or None, inv, f.get("invtexto") or None, f.get("fecha") or None, f["motivo"].strip(),
+           f.get("estado") or "PENDIENTE", f.get("responsable") or None, f.get("obs"), igl,
+           f.get("edad") or None, f.get("sexo") or None, f.get("ecivil") or None, f.get("culto") or None,
+           f.get("comoLlego") or None, f.get("asiste") or None, f.get("encargado") or None), commit=True)
+        log_audit("CREAR","visitas", f"{f.get('nombre','')}")
+        flash("Visita registrada", "ok")
+    except Exception as e:
+        flash(f"Error al guardar la visita: {e}", "error")
+    return redirect(url_for("visitas"))
+
+@app.get("/visitas/<int:vid>/editar")
+@login_req
+@permiso_req("visitas", "editar")
+def visita_editar(vid):
+    if not exigir_igl("visitas", vid):
+        flash("Esa visita no es de tu iglesia", "error"); return redirect(url_for("visitas"))
+    v = q("SELECT * FROM visitas WHERE id=%s", (vid,), one=True)
+    if not v:
+        flash("Visita no encontrada", "error"); return redirect(url_for("visitas"))
+    return render_template("visita_form.html", **_ctx_form_visita(v))
+
+@app.post("/visitas/<int:vid>/editar")
+@login_req
+@permiso_req("visitas", "editar")
+def visita_editar_guardar(vid):
+    f = request.form
+    if not exigir_igl("visitas", vid):
+        flash("Esa visita no es de tu iglesia", "error"); return redirect(url_for("visitas"))
+    inv = f.get("invitado") or None
+    if inv and not exigir_igl("hermanos", inv):
+        flash("Quien invita no es de tu iglesia", "error"); return redirect(url_for("visita_editar", vid=vid))
+    try:
+        q("""UPDATE visitas SET rut=NULLIF(%s,''), nombre_completo=%s, direccion=%s, telefono=%s,
+               correo=%s, comuna_id=NULLIF(%s,'')::int, invitado_por_id=NULLIF(%s,'')::int,
+               invitado_por_texto=NULLIF(%s,''), fecha_visita=COALESCE(NULLIF(%s,'')::date, fecha_visita),
+               motivo_oracion=%s, estado=COALESCE(NULLIF(%s,''), estado), responsable=NULLIF(%s,''),
+               observacion=%s, edad=NULLIF(%s,'')::int, sexo=NULLIF(%s,''), estado_civil=NULLIF(%s,''),
+               culto=NULLIF(%s,''), como_llego=NULLIF(%s,''), asiste_celula=NULLIF(%s,''),
+               encargado_contacto=NULLIF(%s,'')
+             WHERE id=%s""",
+          (f.get("rut") or None, f["nombre"].strip(), f.get("direccion"), f.get("telefono"),
+           f.get("correo") or None, f.get("comuna") or None, inv, f.get("invtexto") or None,
+           f.get("fecha") or None, f["motivo"].strip(), f.get("estado") or None,
+           f.get("responsable") or None, f.get("obs"), f.get("edad") or None, f.get("sexo") or None,
+           f.get("ecivil") or None, f.get("culto") or None, f.get("comoLlego") or None,
+           f.get("asiste") or None, f.get("encargado") or None, vid), commit=True)
+        log_audit("EDITAR","visitas", f"id={vid} {f.get('nombre','')}")
+        flash("Visita actualizada", "ok")
+    except Exception as e:
+        flash(f"Error al guardar la visita: {e}", "error")
+    return redirect(url_for("visitas"))
 
 @app.post("/visitas/<int:vid>/estado")
 @login_req
@@ -3988,6 +4067,7 @@ CATALOGOS = [
     {"key":"estado_celula","nombre":"Estado Célula","icon":"🏠","tabla":"catalogo_estado_celula","tiene_orden":False},
     {"key":"info_enviada","nombre":"Info Enviada","icon":"📬","tabla":"catalogo_info_enviada","tiene_orden":False},
     {"key":"estado_visita","nombre":"Estado Visita","icon":"🙋","tabla":"catalogo_estado_visita","tiene_orden":False},
+    {"key":"cultos","nombre":"Cultos","icon":"🎤","tabla":"catalogo_cultos","tiene_orden":False},
     {"key":"tipo_seguimiento","nombre":"Tipo Seguimiento","icon":"📞","tabla":"catalogo_tipo_seguimiento","tiene_orden":False},
     {"key":"tipo_hermano","nombre":"Tipo Hermano","icon":"👤","tabla":"catalogo_tipo_hermano","tiene_orden":False},
     {"key":"modalidad_celula","nombre":"Modalidad Célula","icon":"🏠","tabla":"catalogo_modalidad_celula","tiene_orden":False},
@@ -4091,6 +4171,117 @@ def configuracion():
                 "vinetas": sum(i["vinetas"] for i in items),
             })
     return render_template("configuracion.html", catalogos=cats, usuarios=users, perm_all=perm_all, user_perms=user_perms, roles=obtener_roles(), modulos=MODULOS_INFO, lideres=lideres, iglesias_cfg=igls_cfg, errores_informes=errores_informes, ayudas_cfg=ayudas_cfg)
+
+# ---------- CONFIGURACION: REGIONES / PROVINCIAS / COMUNAS ----------
+@app.get("/configuracion/comunas")
+@login_req
+@permiso_req("comunas", "leer")
+def comunas_cfg():
+    freg = (request.args.get("region_id") or "").strip()
+    fprov = (request.args.get("provincia_id") or "").strip()
+    texto = (request.args.get("q") or "").strip()
+    conds, params = [], []
+    if freg.isdigit():
+        conds.append("p.region_id=%s"); params.append(int(freg))
+    if fprov.isdigit():
+        conds.append("p.id=%s"); params.append(int(fprov))
+    if texto:
+        conds.append("c.nombre ILIKE %s"); params.append(f"%{texto}%")
+    where = (" WHERE " + " AND ".join(conds)) if conds else ""
+    rows = q(f"""SELECT c.id, c.nombre, p.id AS provincia_id, p.nombre AS provincia,
+                        r.id AS region_id, r.nombre_corto AS region,
+                        (SELECT count(*) FROM visitas v WHERE v.comuna_id=c.id) AS visitas,
+                        (SELECT count(*) FROM hermanos h WHERE h.comuna_id=c.id) AS hermanos
+                   FROM comunas c JOIN provincias p ON p.id=c.provincia_id
+                   JOIN regiones r ON r.id=p.region_id{where}
+                  ORDER BY r.id, p.nombre, c.nombre LIMIT 800""", tuple(params))
+    for r in rows:
+        r["en_uso"] = (r["visitas"] or 0) + (r["hermanos"] or 0)
+    regiones = q("SELECT id, nombre_corto AS nombre FROM regiones ORDER BY id")
+    provincias = q("""SELECT p.id, p.nombre, p.region_id, r.nombre_corto AS region,
+                             (SELECT count(*) FROM comunas c WHERE c.provincia_id=p.id) AS comunas
+                        FROM provincias p JOIN regiones r ON r.id=p.region_id
+                       ORDER BY r.id, p.nombre""")
+    return render_template("comunas_cfg.html", rows=rows, regiones=regiones, provincias=provincias,
+                           arbol=_arbol_comunas(), freg=freg, fprov=fprov, texto=texto,
+                           total_comunas=q("SELECT count(*) AS c FROM comunas", one=True)["c"],
+                           total_provincias=len(provincias))
+
+@app.post("/configuracion/comunas")
+@login_req
+@permiso_req("comunas", "leer")
+def comunas_cfg_accion():
+    f = request.form
+    accion = f.get("accion", "")
+    acc_perm = {"crear_comuna": "crear", "editar_comuna": "editar", "eliminar_comuna": "eliminar",
+                "crear_provincia": "crear", "editar_provincia": "editar", "eliminar_provincia": "eliminar"}
+    if not tiene_permiso(session.get("rol", ""), "comunas", acc_perm.get(accion, "leer"), session.get("uid")):
+        flash("No tiene permiso para esa acción en Regiones y Comunas", "error")
+        return redirect(url_for("comunas_cfg"))
+    nombre = (f.get("nombre") or "").strip()
+    try:
+        if accion == "crear_comuna":
+            pid = int(f.get("provincia_id") or 0)
+            if not nombre or not pid:
+                flash("Indica la provincia y el nombre de la comuna", "error")
+            else:
+                q("""INSERT INTO comunas(nombre, region_id, provincia_id)
+                     SELECT %s, p.region_id, p.id FROM provincias p WHERE p.id=%s""",
+                  (nombre[:100], pid), commit=True)
+                log_audit("CREAR", "comunas", f"{nombre} (provincia {pid})")
+                flash(f"Comuna «{nombre}» agregada", "ok")
+        elif accion == "editar_comuna":
+            cid = int(f.get("item_id") or 0)
+            pid = int(f.get("provincia_id") or 0)
+            if not cid or not nombre or not pid:
+                flash("Faltan datos para editar la comuna", "error")
+            else:
+                q("""UPDATE comunas SET nombre=%s, provincia_id=%s,
+                            region_id=(SELECT region_id FROM provincias WHERE id=%s) WHERE id=%s""",
+                  (nombre[:100], pid, pid, cid), commit=True)
+                log_audit("EDITAR", "comunas", f"id={cid} {nombre}")
+                flash("Comuna actualizada", "ok")
+        elif accion == "eliminar_comuna":
+            cid = int(f.get("item_id") or 0)
+            uso = q("""SELECT (SELECT count(*) FROM visitas WHERE comuna_id=%s)
+                            + (SELECT count(*) FROM hermanos WHERE comuna_id=%s) AS c""",
+                    (cid, cid), one=True)["c"]
+            if uso:
+                flash(f"No se puede eliminar: la comuna está en uso en {uso} registro(s)", "error")
+            else:
+                q("DELETE FROM comunas WHERE id=%s", (cid,), commit=True)
+                log_audit("ELIMINAR", "comunas", f"id={cid}")
+                flash("Comuna eliminada", "ok")
+        elif accion == "crear_provincia":
+            rid = int(f.get("region_id") or 0)
+            if not nombre or not rid:
+                flash("Indica la región y el nombre de la provincia", "error")
+            else:
+                q("INSERT INTO provincias(nombre, region_id) VALUES(%s,%s)", (nombre[:100], rid), commit=True)
+                log_audit("CREAR", "provincias", f"{nombre} (región {rid})")
+                flash(f"Provincia «{nombre}» agregada", "ok")
+        elif accion == "editar_provincia":
+            pid = int(f.get("item_id") or 0)
+            rid = int(f.get("region_id") or 0)
+            if not pid or not nombre or not rid:
+                flash("Faltan datos para editar la provincia", "error")
+            else:
+                q("UPDATE provincias SET nombre=%s, region_id=%s WHERE id=%s", (nombre[:100], rid, pid), commit=True)
+                q("UPDATE comunas SET region_id=%s WHERE provincia_id=%s", (rid, pid), commit=True)
+                log_audit("EDITAR", "provincias", f"id={pid} {nombre}")
+                flash("Provincia actualizada", "ok")
+        elif accion == "eliminar_provincia":
+            pid = int(f.get("item_id") or 0)
+            n = q("SELECT count(*) AS c FROM comunas WHERE provincia_id=%s", (pid,), one=True)["c"]
+            if n:
+                flash(f"No se puede eliminar: la provincia tiene {n} comuna(s)", "error")
+            else:
+                q("DELETE FROM provincias WHERE id=%s", (pid,), commit=True)
+                log_audit("ELIMINAR", "provincias", f"id={pid}")
+                flash("Provincia eliminada", "ok")
+    except Exception as e:
+        flash(f"No se pudo guardar: {e}", "error")
+    return redirect(url_for("comunas_cfg"))
 
 @app.post("/configuracion")
 @login_req

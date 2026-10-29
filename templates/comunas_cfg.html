@@ -1,0 +1,222 @@
+{% extends "base.html" %}{% block b %}
+<div class="card p-3">
+<h4 class="d-flex flex-wrap gap-2 align-items-center">🗺️ Regiones, Provincias y Comunas
+  <span class="badge bg-primary">{{ total_comunas }} comunas</span>
+  <span class="badge bg-secondary">{{ total_provincias }} provincias</span>
+  <a class="btn btn-sm btn-outline-secondary ms-auto" href="/configuracion">← Volver a Configuración</a>
+</h4>
+<p class="text-muted small">Catálogo oficial de Chile (16 regiones · 56 provincias · 346 comunas). Las comunas en uso no se pueden eliminar. Los permisos de este módulo se asignan en <b>Configuración → Roles/Usuarios → Regiones y Comunas</b>.</p>
+
+{% if tiene_permiso('comunas','crear') %}
+<div class="card p-3 mb-3 bg-light">
+<h6>➕ Agregar comuna</h6>
+<form method="post" class="row g-2 align-items-end">
+<input type="hidden" name="accion" value="crear_comuna">
+<div class="col-12 col-sm-4">Región<select class="form-select" id="ac-region"></select></div>
+<div class="col-12 col-sm-4">Provincia<select class="form-select" id="ac-provincia" name="provincia_id" required></select></div>
+<div class="col-12 col-sm-3">Nombre de la comuna<input class="form-control" name="nombre" required maxlength="100"></div>
+<div class="col-12 col-sm-1"><button class="btn btn-success w-100" title="Agregar comuna">➕</button></div>
+</form>
+</div>
+{% endif %}
+
+<form method="get" class="row g-2 mb-2">
+<div class="col-12 col-sm-3">Región
+  <select class="form-select" name="region_id" id="f-region">
+    <option value="">Todas</option>
+    {% for r in regiones %}<option value="{{r.id}}" {% if freg==r.id|string %}selected{% endif %}>{{r.nombre}}</option>{% endfor %}
+  </select></div>
+<div class="col-12 col-sm-3">Provincia
+  <select class="form-select" name="provincia_id" id="f-provincia">
+    <option value="">Todas</option>
+    {% for p in provincias %}<option value="{{p.id}}" data-region="{{p.region_id}}" {% if fprov==p.id|string %}selected{% endif %}>{{p.nombre}} ({{p.region}})</option>{% endfor %}
+  </select></div>
+<div class="col-12 col-sm-4"><input class="form-control" name="q" value="{{texto}}" placeholder="🔍 Buscar comuna..."></div>
+<div class="col-12 col-sm-2"><button class="btn btn-primary w-100">Filtrar</button></div>
+</form>
+
+<div class="table-responsive" style="max-height:520px;overflow-y:auto">
+<table class="table table-sm table-striped align-middle">
+<thead class="table-dark" style="position:sticky;top:0"><tr><th>Región</th><th>Provincia</th><th>Comuna</th><th class="text-center">En uso</th><th class="text-end">Acciones</th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr>
+<td>{{ r.region }}</td>
+<td>{{ r.provincia }}</td>
+<td><b>{{ r.nombre }}</b></td>
+<td class="text-center">{% if r.en_uso %}<span class="badge bg-info text-dark" title="{{r.visitas}} visita(s), {{r.hermanos}} hermano(s)">{{ r.en_uso }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+<td class="text-end text-nowrap">
+{% if tiene_permiso('comunas','editar') %}
+<button class="btn btn-sm btn-outline-secondary btn-edit-com" title="Editar comuna"
+        data-id="{{r.id}}" data-nombre="{{r.nombre}}" data-provincia="{{r.provincia_id}}">✏️</button>
+{% endif %}
+{% if tiene_permiso('comunas','eliminar') %}
+<form method="post" style="display:inline" data-confirm="¿Eliminar la comuna «{{r.nombre}}»?">
+<input type="hidden" name="accion" value="eliminar_comuna">
+<input type="hidden" name="item_id" value="{{r.id}}">
+<button class="btn btn-sm btn-outline-danger" {% if r.en_uso %}disabled title="En uso: {{r.en_uso}} registro(s)"{% else %}title="Eliminar"{% endif %}>🗑</button>
+</form>
+{% endif %}
+</td>
+</tr>
+{% else %}
+<tr><td colspan="5" class="text-muted">Sin comunas para ese filtro.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+<p class="text-muted small mb-0">Mostrando {{ rows|length }} comuna(s){% if rows|length >= 800 %} (máximo 800: usa los filtros){% endif %}.</p>
+
+<hr class="my-4">
+<h5>🏙️ Provincias <span class="badge bg-secondary">{{ total_provincias }}</span></h5>
+{% if tiene_permiso('comunas','crear') %}
+<form method="post" class="row g-2 align-items-end mb-2">
+<input type="hidden" name="accion" value="crear_provincia">
+<div class="col-12 col-sm-4">Región<select class="form-select" id="ap-region" name="region_id" required>
+  <option value="">-- Región --</option>
+  {% for r in regiones %}<option value="{{r.id}}">{{r.nombre}}</option>{% endfor %}
+</select></div>
+<div class="col-12 col-sm-5">Nombre de la provincia<input class="form-control" name="nombre" required maxlength="100" placeholder="Ej: Cachapoal"></div>
+<div class="col-12 col-sm-3"><button class="btn btn-success w-100">➕ Agregar provincia</button></div>
+</form>
+{% endif %}
+<div class="table-responsive" style="max-height:360px;overflow-y:auto">
+<table class="table table-sm table-striped align-middle">
+<thead class="table-dark" style="position:sticky;top:0"><tr><th>Región</th><th>Provincia</th><th class="text-center">Comunas</th><th class="text-end">Acciones</th></tr></thead>
+<tbody>
+{% for p in provincias %}
+<tr>
+<td>{{ p.region }}</td>
+<td><b>{{ p.nombre }}</b></td>
+<td class="text-center"><span class="badge bg-info text-dark">{{ p.comunas }}</span></td>
+<td class="text-end text-nowrap">
+{% if tiene_permiso('comunas','editar') %}
+<button class="btn btn-sm btn-outline-secondary btn-edit-prov" title="Editar provincia"
+        data-id="{{p.id}}" data-nombre="{{p.nombre}}" data-region="{{p.region_id}}">✏️</button>
+{% endif %}
+{% if tiene_permiso('comunas','eliminar') %}
+<form method="post" style="display:inline" data-confirm="¿Eliminar la provincia «{{p.nombre}}»?">
+<input type="hidden" name="accion" value="eliminar_provincia">
+<input type="hidden" name="item_id" value="{{p.id}}">
+<button class="btn btn-sm btn-outline-danger" {% if p.comunas %}disabled title="Tiene {{p.comunas}} comuna(s)"{% else %}title="Eliminar"{% endif %}>🗑</button>
+</form>
+{% endif %}
+</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+</div>
+
+<!-- Modal editar comuna -->
+<div class="modal fade" id="modalComuna" tabindex="-1">
+<div class="modal-dialog"><div class="modal-content">
+<div class="modal-header"><h6>✏️ Editar comuna</h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
+<div class="modal-body">
+<form method="post" class="row g-2" id="form-edit-com">
+<input type="hidden" name="accion" value="editar_comuna">
+<input type="hidden" name="item_id" id="ec-id">
+<div class="col-12">Nombre<input class="form-control" name="nombre" id="ec-nombre" required maxlength="100"></div>
+<div class="col-12">Región<select class="form-select" id="ec-region"></select></div>
+<div class="col-12">Provincia<select class="form-select" name="provincia_id" id="ec-provincia" required></select></div>
+<button class="btn btn-success">💾 Guardar cambios</button>
+</form>
+</div></div></div>
+</div>
+
+<!-- Modal editar provincia -->
+<div class="modal fade" id="modalProvincia" tabindex="-1">
+<div class="modal-dialog"><div class="modal-content">
+<div class="modal-header"><h6>✏️ Editar provincia</h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
+<div class="modal-body">
+<form method="post" class="row g-2" id="form-edit-prov">
+<input type="hidden" name="accion" value="editar_provincia">
+<input type="hidden" name="item_id" id="ep-id">
+<div class="col-12">Nombre<input class="form-control" name="nombre" id="ep-nombre" required maxlength="100"></div>
+<div class="col-12">Región<select class="form-select" name="region_id" id="ep-region" required></select></div>
+<button class="btn btn-success">💾 Guardar cambios</button>
+</form>
+</div></div></div>
+</div>
+
+<script>
+(function(){
+  var ARBOL = {{ arbol|tojson }};
+
+  function opt(v, t, sel){
+    var o = document.createElement('option'); o.value = v; o.textContent = t;
+    if (sel !== undefined && String(sel) === String(v)) o.selected = true;
+    return o;
+  }
+  function llenarRegiones(el, sel){
+    el.innerHTML = ''; el.appendChild(opt('', '-- Región --', sel === '' ? '' : undefined));
+    ARBOL.forEach(function(r){ el.appendChild(opt(r.id, r.nombre, sel)); });
+  }
+  function provinciasDe(rid){ return (ARBOL.filter(function(r){ return String(r.id) === String(rid); })[0] || {}).provincias || []; }
+  function comunasDe(pid){
+    var out = []; ARBOL.forEach(function(r){ r.provincias.forEach(function(p){ if (String(p.id) === String(pid)) out = p.comunas; }); }); return out;
+  }
+  function llenarProvincias(el, rid, sel){
+    el.innerHTML = ''; el.appendChild(opt('', '-- Provincia --'));
+    provinciasDe(rid).forEach(function(p){ el.appendChild(opt(p.id, p.nombre, sel)); });
+  }
+
+  // --- Agregar comuna (cascada) ---
+  var acR = document.getElementById('ac-region'), acP = document.getElementById('ac-provincia');
+  if (acR && acP){
+    llenarRegiones(acR);
+    llenarProvincias(acP, acR.value);
+    acR.addEventListener('change', function(){ llenarProvincias(acP, acR.value); });
+  }
+
+  // --- Filtro: al cambiar región, limitar provincias ---
+  var fR = document.getElementById('f-region'), fP = document.getElementById('f-provincia');
+  if (fR && fP){
+    function filtrarProvincias(){
+      var rid = fR.value;
+      Array.prototype.forEach.call(fP.options, function(o){
+        if (!o.value) return;
+        o.hidden = !!(rid && o.getAttribute('data-region') !== rid);
+      });
+      if (fP.selectedOptions[0] && fP.selectedOptions[0].hidden) fP.value = '';
+    }
+    fR.addEventListener('change', filtrarProvincias);
+    filtrarProvincias();
+  }
+
+  // --- Editar comuna ---
+  var ecR = document.getElementById('ec-region'), ecP = document.getElementById('ec-provincia');
+  if (ecR && ecP){
+    llenarRegiones(ecR);
+    ecR.addEventListener('change', function(){ llenarProvincias(ecP, ecR.value); });
+    document.querySelectorAll('.btn-edit-com').forEach(function(b){
+      b.addEventListener('click', function(){
+        document.getElementById('ec-id').value = b.getAttribute('data-id');
+        document.getElementById('ec-nombre').value = b.getAttribute('data-nombre');
+        var pid = b.getAttribute('data-provincia');
+        var rid = null;
+        ARBOL.forEach(function(r){ r.provincias.forEach(function(p){ if (String(p.id) === String(pid)) rid = r.id; }); });
+        llenarRegiones(ecR, rid);
+        llenarProvincias(ecP, rid, pid);
+        new bootstrap.Modal(document.getElementById('modalComuna')).show();
+      });
+    });
+  }
+
+  // --- Editar provincia ---
+  var epR = document.getElementById('ep-region');
+  if (epR){
+    llenarRegiones(epR);
+    document.querySelectorAll('.btn-edit-prov').forEach(function(b){
+      b.addEventListener('click', function(){
+        document.getElementById('ep-id').value = b.getAttribute('data-id');
+        document.getElementById('ep-nombre').value = b.getAttribute('data-nombre');
+        llenarRegiones(epR, b.getAttribute('data-region'));
+        new bootstrap.Modal(document.getElementById('modalProvincia')).show();
+      });
+    });
+  }
+})();
+</script>
+{% endblock %}
