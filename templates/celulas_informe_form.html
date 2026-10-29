@@ -2,8 +2,9 @@
 {# Formulario interno de informe: MISMO formulario que el informe exprés que
    cargan los líderes (mismos campos, orden, textos y ayudas). La única
    diferencia es el selector de líder, que en el exprés lo da el código; los
-   datos de la célula (pastor, género, dirección, comuna y horario) salen solos
-   del líder, igual que en el exprés. #}
+   datos de la célula (pastor, género, dirección y horario) salen solos
+   del líder, igual que en el exprés. La ubicación (región → provincia →
+   comuna) se precarga del líder y se puede corregir aquí. #}
 <div class="card p-4" style="max-width:800px">
 <h4>{{'✏️ Editar' if c else '➕ Nuevo'}} Informe de Célula</h4>
 
@@ -12,7 +13,7 @@
   {# ========= LÍDER (solo aquí; en el exprés lo da el código) ========= #}
   <div class="mb-3">
     <label class="form-label fw-bold">Nombre del Líder *</label>
-    <select class="form-select" name="lider_id" id="sel_lider" required onchange="cargarTimoteos()">
+    <select class="form-select" name="lider_id" id="sel_lider" required onchange="cargarTimoteos(true)">
       <option value="">Seleccionar líder...</option>
       {% for l in lideres %}<option value="{{ l.id }}" {{'selected' if c and c.lider_id==l.id}}>{{ l.nombre_completo }}</option>{% endfor %}
     </select>
@@ -22,6 +23,15 @@
   <div class="alert alert-info mb-3" id="infoLider" style="display:none">
     <strong>👋 <span id="infNombre"></span></strong><br>
     <small id="infDetalle"></small>
+  </div>
+
+  {# ========= UBICACIÓN DE LA CÉLULA (región → provincia → comuna) ========= #}
+  <div class="mb-3">
+    <label class="form-label fw-bold">📍 Ubicación de la célula *</label>
+    <small class="text-muted d-block mb-2">Región, provincia y comuna donde se reúne la célula. Se precarga con la última ubicación informada; puedes corregirla.</small>
+    <div class="row g-3">
+      {% include "_comuna_picker.html" %}
+    </div>
   </div>
 
   {# ========= TIMOTEO (sub-líder / discípulo a cargo) ========= #}
@@ -124,7 +134,7 @@
   // Timoteos del líder elegido + ayuda y datos de la célula. El texto de ayuda
   // viene del servidor (mismo texto editable que ve el líder en el exprés).
   var TIMOTEO_ACTUAL = "{{ (c.timoteo_id if c and c.timoteo_id else '') }}";
-  function cargarTimoteos(){
+  function cargarTimoteos(esCambio){
     var sel = document.getElementById('sel_timoteo');
     var lid = document.getElementById('sel_lider').value;
     var txt = document.getElementById('txt_timoteo');
@@ -149,10 +159,13 @@
         var partes = [];
         if(d.lider.red) partes.push('Célula: ' + d.lider.red);
         if(d.lider.pastor) partes.push('Pastor: ' + d.lider.pastor);
-        var dir = [d.lider.direccion, d.lider.comuna].filter(function(x){ return x; }).join(', ');
+        var dir = [d.lider.direccion, d.lider.comuna, d.lider.provincia, d.lider.region].filter(function(x){ return x; }).join(', ');
         if(dir) partes.push(dir);
         document.getElementById('infDetalle').textContent = partes.join(' · ');
         info.style.display = 'block';
+        if (esCambio && window.ComunaPicker) {
+          window.ComunaPicker.set(d.lider.comuna_id || 0);
+        }
       }
     }).catch(function(){
       txt.textContent = 'No se pudo cargar la lista de timoteos.';

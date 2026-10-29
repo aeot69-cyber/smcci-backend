@@ -1,6 +1,12 @@
 {# Selector en cascada Región → Provincia → Comuna.
-   Incluir dentro de un <div class="row">; espera en el contexto `arbol` y
-   `sel_comuna` (id de la comuna guardada, para preseleccionar al editar). #}
+   Incluir dentro de un <div class="row g-3">; espera en el contexto `arbol` y
+   `sel_comuna` (id de la comuna guardada, para preseleccionar al editar).
+   Opcionales:
+     campo     → nombre del campo que se envía (por defecto "comuna")
+     requerido → si es true, la comuna es obligatoria en el navegador
+   Expone window.ComunaPicker.set(id) para precargar desde JavaScript
+   (p.ej. al cambiar de líder en el informe interno). #}
+{% set cmp_campo = campo|default('comuna') %}
 <div class="col-12 col-sm-6 col-lg-4">Región
   <select class="form-select" id="cmp-region" aria-label="Región"></select>
 </div>
@@ -8,7 +14,8 @@
   <select class="form-select" id="cmp-provincia" aria-label="Provincia"></select>
 </div>
 <div class="col-12 col-sm-6 col-lg-4">Comuna
-  <select class="form-select" id="cmp-comuna" name="comuna"><option value="">--</option></select>
+  <select class="form-select" id="cmp-comuna" name="{{ cmp_campo }}" aria-label="Comuna"
+          {% if requerido %}required{% endif %}><option value="">--</option></select>
 </div>
 <script>
 (function(){
@@ -34,19 +41,25 @@
     ARBOL.forEach(function(r){ r.provincias.forEach(function(p){ if (String(p.id) === String(pid)) prov = p; }); });
     if (prov) prov.comunas.forEach(function(c){ cs.appendChild(opt(c.id, c.nombre)); });
   }
+  // Preselecciona una comuna por id (0 = limpiar). Se usa al cargar la página
+  // y cuando el formulario interno cambia de líder.
+  function preseleccionar(id){
+    id = parseInt(id, 10) || 0;
+    if (!id) { rs.value = ''; pintarProvincias(''); cs.value = ''; return; }
+    var listo = false;
+    ARBOL.forEach(function(r){ r.provincias.forEach(function(p){
+      if (p.comunas.some(function(c){ return c.id === id; })) {
+        rs.value = r.id; pintarProvincias(r.id);
+        ps.value = p.id; pintarComunas(p.id);
+        cs.value = id; listo = true;
+      }
+    });});
+    if (!listo) { rs.value = ''; pintarProvincias(''); cs.value = ''; }
+  }
   rs.addEventListener('change', function(){ pintarProvincias(rs.value); });
   ps.addEventListener('change', function(){ pintarComunas(ps.value); });
   pintarRegiones();
-  if (PRESEL) {
-    ARBOL.forEach(function(r){ r.provincias.forEach(function(p){
-      if (p.comunas.some(function(c){ return c.id === PRESEL; })) {
-        rs.value = r.id; pintarProvincias(r.id);
-        ps.value = p.id; pintarComunas(p.id);
-        cs.value = PRESEL;
-      }
-    });});
-  } else {
-    pintarProvincias('');
-  }
+  preseleccionar(PRESEL);
+  window.ComunaPicker = { set: preseleccionar };
 })();
 </script>

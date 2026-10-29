@@ -45,11 +45,20 @@
     {# ========= PASO 2: FORMULARIO ========= #}
     <div class="alert alert-info mb-3">
       <strong>👋 Hola {{ lider.nombre }}</strong><br>
-      <small>Célula: {{ lider.red }} · Pastor: {{ lider.pastor }} · {{ lider.direccion }}, {{ lider.comuna }}</small>
+      <small>Célula: {{ lider.red }} · Pastor: {{ lider.pastor }}{% if lider.direccion %} · {{ lider.direccion }}{% endif %}</small>
     </div>
 
     <form method="post" action="/informe/guardar" id="formInforme">
       <input type="hidden" name="lider_id" value="{{ lider.id }}">
+
+      {# ========= UBICACIÓN DE LA CÉLULA ========= #}
+      <div class="mb-3">
+        <label class="form-label fw-bold">📍 Ubicación de la célula *</label>
+        <small class="text-muted d-block mb-2">Región, provincia y comuna. Viene precargada con tu última ubicación informada (o tu domicilio); corrígela si la célula se reúne en otra comuna.</small>
+        <div class="row g-3">
+          {% include "_comuna_picker.html" %}
+        </div>
+      </div>
 
       {# ========= TIMOTEO (sub-líder / discípulo a cargo) ========= #}
       <div class="mb-3">

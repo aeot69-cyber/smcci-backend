@@ -18,7 +18,7 @@
 {% endif %}
 
 <table class="table table-striped table-sm">
-<tr><th>#</th><th>Iglesia</th><th>Líder</th><th>Líder/Pastor</th><th>Fecha</th><th>Mes</th><th>Red</th><th>Realizó</th><th>Ofrenda</th><th>Acciones</th></tr>
+<tr><th>#</th><th>Iglesia</th><th>Líder</th><th>Líder/Pastor</th><th>Fecha</th><th>Mes</th><th>Red</th><th>Ubicación</th><th>Realizó</th><th>Ofrenda</th><th>Acciones</th></tr>
 {% for c in rows %}<tr>
 <td>{{c.id}}</td>
 <td><span class="badge bg-warning text-dark">{{c.iglesia_nombre or 'CASA MATRIZ'}}</span></td>
@@ -26,10 +26,11 @@
 <td>{{c.pastor_nombre or '—'}}</td>
 <td>{{c.fecha}}</td><td>{{c.mes}}</td>
 <td><span class="badge bg-primary">{{c.red}}</span></td>
+<td><small>{{c.comuna_nombre or '—'}}{% if c.provincia_nombre %}<br><span class="text-muted">{{c.provincia_nombre}}{% if c.region_nombre %} · {{c.region_nombre}}{% endif %}</span>{% endif %}</small></td>
 <td>{% if c.realizo %}<span class="badge bg-success">SI</span>{% else %}<span class="badge bg-danger">NO</span>{% endif %}</td>
 <td>${{c.ofrenda or 0}}</td>
 <td><a class="btn btn-sm btn-outline-primary" href="/celulas-informe/{{c.id}}/editar">✏️</a>
 <form method="post" action="/celulas-informe/{{c.id}}/eliminar" class="d-inline" data-confirm="¿Eliminar?">
 <button class="btn btn-sm btn-outline-danger">🗑️</button></form></td>
-</tr>{% else %}<tr><td colspan=10>Sin informes</td></tr>{% endfor %}
+</tr>{% else %}<tr><td colspan=11>Sin informes</td></tr>{% endfor %}
 </table></div>{% endblock %}

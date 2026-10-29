@@ -247,11 +247,36 @@ def permiso_req(modulo, accion="leer"):
 
 from flask import g
 
+def _perm_cache_container():
+    """Contenedor de caché de permisos: por request si hay request context activo
+    (así cada petición re-consulta y no se arrastran permisos recién otorgados
+    entre peticiones en el mismo app context, p.ej. en las suites de prueba);
+    si no, por app context (g), como antes."""
+    try:
+        from flask import request as _req
+        # _request_ctx_stack no es público estable; accedemos vía request proxy.
+        # Si estamos en request context, request está disponible.
+        _req.path  # toca el proxy -> RuntimeError si no hay request context
+        ctx = _req.environ.get("_perm_container")
+        if ctx is None:
+            ctx = {}
+            _req.environ["_perm_container"] = ctx
+        return ctx, True
+    except RuntimeError:
+        pass
+    except Exception:
+        pass
+    if "_perm_cache_fallback" not in g:
+        g._perm_cache_fallback = {}
+    return g._perm_cache_fallback, False
+
 def permisos(rol, iglesia="sesion"):
     """Permisos de un rol. iglesia: None=solo global, int=iglesia (con fallback a global),
     'sesion'=la iglesia en sesion (SUPERADMIN siempre global)."""
-    if "_perm_cache" not in g:
-        g._perm_cache = {}
+    container, _ = _perm_cache_container()
+    if "_perm_cache" not in container:
+        container["_perm_cache"] = {}
+    pc = container["_perm_cache"]
     if iglesia == "sesion":
         try:
             if rol == "SUPERADMIN":
@@ -261,7 +286,7 @@ def permisos(rol, iglesia="sesion"):
         except RuntimeError:
             iglesia = None
     key = (rol, iglesia)
-    if key not in g._perm_cache:
+    if key not in pc:
         if iglesia is None:
             rows = q("SELECT modulo, puede_leer, puede_crear, puede_editar, puede_eliminar, puede_exportar FROM roles_permisos WHERE rol=%s AND iglesia_id IS NULL", (rol,))
         else:
@@ -271,16 +296,18 @@ def permisos(rol, iglesia="sesion"):
             # el valor propio de la iglesia pisa al global (herencia con override)
             if r["modulo"] not in d or r.get("iglesia_id") is not None:
                 d[r["modulo"]] = r
-        g._perm_cache[key] = d
-    return g._perm_cache[key]
+        pc[key] = d
+    return pc[key]
 
 def _permisos_usuario(usuario_id):
-    if "_uperm_cache" not in g:
-        g._uperm_cache = {}
-    if usuario_id not in g._uperm_cache:
+    container, _ = _perm_cache_container()
+    if "_uperm_cache" not in container:
+        container["_uperm_cache"] = {}
+    uc = container["_uperm_cache"]
+    if usuario_id not in uc:
         rows = q("SELECT modulo, puede_leer, puede_crear, puede_editar, puede_eliminar, puede_exportar FROM usuario_permisos WHERE usuario_id=%s", (usuario_id,))
-        g._uperm_cache[usuario_id] = {r["modulo"]: r for r in rows}
-    return g._uperm_cache[usuario_id]
+        uc[usuario_id] = {r["modulo"]: r for r in rows}
+    return uc[usuario_id]
 
 def tiene_permiso(rol, modulo, accion="leer", usuario_id=None, iglesia_id="sesion"):
     if rol == "SUPERADMIN":
@@ -686,7 +713,7 @@ def to_excel(rows, headers, filename):
 def to_pdf(title, rows, headers, filename):
     pdf = FPDF(); pdf.add_page(); pdf.set_font("Helvetica", "B", 14)
     pdf.cell(0, 10, title[:80], new_x="LMARGIN", new_y="NEXT"); pdf.set_font("Helvetica", "", 8)
-    w = max(190 // max(len(headers), 1), 25)
+    w = max(190 // max(len(headers), 1), 18)
     for h in headers: pdf.cell(w, 8, str(h)[:20], border=1)
     pdf.ln()
     for r in rows:
@@ -2523,6 +2550,36 @@ def _arbol_comunas():
             for v in regs.values()]
 
 
+def comuna_de_id(cid):
+    """Datos de una comuna del catálogo (con su provincia y región) o None.
+    Se usa para validar la ubicación de la célula: la región y la provincia se
+    resuelven SIEMPRE desde la comuna elegida, nunca desde lo que llega en el
+    formulario."""
+    cid = str(cid or "").strip()
+    if not cid.isdigit():
+        return None
+    return q("""SELECT c.id, c.nombre, c.provincia_id, p.nombre AS provincia,
+                       p.region_id, r.nombre_corto AS region
+                  FROM comunas c
+                  JOIN provincias p ON p.id=c.provincia_id
+                  JOIN regiones r ON r.id=p.region_id
+                 WHERE c.id=%s""", (int(cid),), one=True)
+
+
+def _comuna_lider(lid):
+    """Comuna de la célula de un líder: la última informada o, si aún no hay
+    informes con ubicación, la comuna de su domicilio. Solo se usa para
+    precargar el selector (el líder/admin siempre puede corregirla)."""
+    row = q("""SELECT COALESCE(
+                    (SELECT ci.comuna_id FROM celulas_informe ci
+                      WHERE ci.lider_id=l.id AND ci.comuna_id IS NOT NULL
+                      ORDER BY ci.created_at DESC LIMIT 1),
+                    h.comuna_id) AS comuna_id
+               FROM lideres l JOIN hermanos h ON h.id=l.hermano_id
+              WHERE l.id=%s""", (lid,), one=True)
+    return (row or {}).get("comuna_id")
+
+
 def _ctx_form_visita(v=None):
     """Datos comunes del formulario de visita (nuevo y editar)."""
     fi, pi = filtro_igl()
@@ -2964,9 +3021,14 @@ def celulas_informe_lista():
     fi, pi = filtro_igl("ci")
     rows = q(f"""SELECT ci.*, h1.nombre_completo AS lider_nombre, h2.nombre_completo AS pastor_nombre,
         i.nombre AS iglesia_nombre,
+        COALESCE(co.nombre, NULLIF(btrim(ci.comuna), '')) AS comuna_nombre,
+        p.nombre AS provincia_nombre, r.nombre_corto AS region_nombre,
         CASE WHEN ci.realizo THEN 'SI' ELSE 'NO' END AS realizado
         FROM celulas_informe ci 
         LEFT JOIN iglesias i ON i.id=ci.iglesia_id
+        LEFT JOIN comunas co ON co.id=ci.comuna_id
+        LEFT JOIN provincias p ON p.id=ci.provincia_id
+        LEFT JOIN regiones r ON r.id=ci.region_id
         LEFT JOIN lideres l1 ON l1.id=ci.lider_id LEFT JOIN hermanos h1 ON h1.id=l1.hermano_id
         LEFT JOIN lideres l2 ON l2.id=ci.pastor_id LEFT JOIN hermanos h2 ON h2.id=l2.hermano_id
         WHERE 1=1{fi} ORDER BY ci.id DESC""", tuple(pi))
@@ -2982,11 +3044,12 @@ def celulas_informe_lista():
         )
         ORDER BY h.nombre_completo""", tuple(pl))
     if exp == "excel":
-        return to_excel(rows, ["lider_nombre","pastor_nombre","fecha","mes","red","comuna",
+        return to_excel(rows, ["lider_nombre","pastor_nombre","fecha","mes","red",
+            "region_nombre","provincia_nombre","comuna_nombre",
             "horario","realizado","discipulos_asistieron","ofrenda","tipo_ofrenda"], "informe_celulas.xlsx")
     if exp == "pdf":
         return to_pdf("Informe Células MCCI", rows, ["lider_nombre","pastor_nombre","fecha","mes",
-            "red","realizado","ofrenda"], "informe_celulas.pdf")
+            "region_nombre","provincia_nombre","comuna_nombre","realizado","ofrenda"], "informe_celulas.pdf")
     return render_template("celulas_informe.html", rows=rows, sin_informe=sin_informe)
 
 @app.get("/celulas-informe/nuevo")
@@ -3001,7 +3064,9 @@ def celulas_informe_nuevo():
     return render_template("celulas_informe_form.html", c=None, lideres=lideres,
                            modalidades=get_catalogo("catalogo_modalidad_celula"),
                            fecha_hoy=hoy_chile().isoformat(),
-                           ayuda_timoteo=ayuda_timoteo(None))
+                           ayuda_timoteo=ayuda_timoteo(None),
+                           arbol=_arbol_comunas(), sel_comuna=None,
+                           campo="comuna_id", requerido=True)
 
 @app.post("/celulas-informe/nuevo")
 @login_req
@@ -3011,8 +3076,13 @@ def celulas_informe_crear():
     err, lid, fecha_sel, timoteo_id = _leer_informe_interno(f)
     if err:
         flash(err, "error"); return redirect(url_for("celulas_informe_nuevo"))
-    # Pastor, género, dirección, comuna y horario salen del líder (igual que en
-    # el informe exprés); el mes se calcula solo desde la fecha.
+    cd = comuna_de_id(f.get("comuna_id"))
+    if not cd:
+        flash("Selecciona la región, provincia y comuna donde se reúne la célula.", "error")
+        return redirect(url_for("celulas_informe_nuevo"))
+    # Pastor, género, dirección y horario salen del líder (igual que en el
+    # informe exprés); el mes se calcula solo desde la fecha. La ubicación sí
+    # se guarda tal como se eligió en la cascada (con su región y provincia).
     d = datos_celula_lider(lid)
     if not d:
         flash("No se encontró el líder elegido.", "error")
@@ -3020,12 +3090,14 @@ def celulas_informe_crear():
     cigl = iglesia_de("lideres", lid) or session.get("iglesia_id") or 1
     try:
         q("""INSERT INTO celulas_informe
-                (lider_id, pastor_id, fecha, mes, red, direccion, comuna, horario,
+                (lider_id, pastor_id, fecha, mes, red, direccion, comuna,
+                 region_id, provincia_id, comuna_id, horario,
                  realizo, justificacion, discipulos_asistieron, discipulos_no_asistieron,
                  ofrenda, tipo_ofrenda, modalidad, timoteo_id, iglesia_id)
-             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
           (lid, d["pastor_id"], fecha_sel, MESES_ES[fecha_sel.month], d["red"],
-           d["direccion"], d["comuna"], d["horario"],
+           d["direccion"], cd["nombre"], cd["region_id"], cd["provincia_id"], cd["id"],
+           d["horario"],
            f.get("realizo") == "1", (f.get("justificacion") or "").strip(),
            f.get("asistieron"), f.get("no_asistieron"),
            f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
@@ -3057,7 +3129,10 @@ def celulas_informe_editar(cid):
     return render_template("celulas_informe_form.html", c=c, lideres=lideres,
                            modalidades=modalidades,
                            fecha_hoy=hoy_chile().isoformat(),
-                           ayuda_timoteo=ayuda_timoteo(c.get("lider_id")))
+                           ayuda_timoteo=ayuda_timoteo(c.get("lider_id")),
+                           arbol=_arbol_comunas(),
+                           sel_comuna=c.get("comuna_id") or _comuna_lider(c.get("lider_id")),
+                           campo="comuna_id", requerido=True)
 
 @app.post("/celulas-informe/<int:cid>/editar")
 @login_req
@@ -3071,27 +3146,34 @@ def celulas_informe_update(cid):
     err, lid, fecha_sel, timoteo_id = _leer_informe_interno(f)
     if err:
         flash(err, "error"); return redirect(url_for("celulas_informe_editar", cid=cid))
-    # Los datos de la célula (pastor, género, dirección, comuna y horario) se
+    cd = comuna_de_id(f.get("comuna_id"))
+    if not cd:
+        flash("Selecciona la región, provincia y comuna donde se reúne la célula.", "error")
+        return redirect(url_for("celulas_informe_editar", cid=cid))
+    # Los datos de la célula (pastor, género, dirección y horario) se
     # conservan como están; solo se recalculan si cambia el líder del informe.
+    # La ubicación es la que se eligió en la cascada.
     if str(c.get("lider_id") or "") == str(lid):
         pastor_id, red = c.get("pastor_id"), c.get("red")
-        direccion, comuna, horario = c.get("direccion"), c.get("comuna"), c.get("horario")
+        direccion, horario = c.get("direccion"), c.get("horario")
     else:
         d = datos_celula_lider(lid)
         if not d:
             flash("No se encontró el líder elegido.", "error")
             return redirect(url_for("celulas_informe_editar", cid=cid))
         pastor_id, red = d["pastor_id"], d["red"]
-        direccion, comuna, horario = d["direccion"], d["comuna"], d["horario"]
+        direccion, horario = d["direccion"], d["horario"]
     try:
         q("""UPDATE celulas_informe SET
-             lider_id=%s, pastor_id=%s, fecha=%s, mes=%s, red=%s, direccion=%s, comuna=%s,
+             lider_id=%s, pastor_id=%s, fecha=%s, mes=%s, red=%s, direccion=%s,
+             comuna=%s, region_id=%s, provincia_id=%s, comuna_id=%s,
              horario=%s, realizo=%s, justificacion=%s, discipulos_asistieron=%s,
              discipulos_no_asistieron=%s, ofrenda=%s, tipo_ofrenda=%s, modalidad=%s,
              timoteo_id=%s
            WHERE id=%s""",
           (lid, pastor_id, fecha_sel, MESES_ES[fecha_sel.month], red, direccion,
-           comuna, horario, f.get("realizo") == "1", (f.get("justificacion") or "").strip(),
+           cd["nombre"], cd["region_id"], cd["provincia_id"], cd["id"],
+           horario, f.get("realizo") == "1", (f.get("justificacion") or "").strip(),
            f.get("asistieron"), f.get("no_asistieron"), f.get("ofrenda") or "0",
            f.get("tipo_ofrenda"), f.get("modalidad"), timoteo_id, cid), commit=True)
         log_audit("EDITAR","celulas", f"id={cid}")
@@ -3134,7 +3216,9 @@ def celulas_informe_timoteos(lid):
                    ayuda=str(ayuda_timoteo(lid)),
                    lider=({"nombre": d["nombre_completo"], "red": d["red"] or "",
                            "pastor": d["pastor"] or "", "direccion": d["direccion"] or "",
-                           "comuna": d["comuna"] or ""} if d else None))
+                           "comuna": d["comuna"] or "", "provincia": d["provincia"] or "",
+                           "region": d["region"] or "",
+                           "comuna_id": d["comuna_id"] or 0} if d else None))
 
 # ---------- INFORME EXPRESS (público, sin login) ----------
 from datetime import date, datetime
@@ -3232,19 +3316,33 @@ def pastor_de_lider(lid):
 
 def datos_celula_lider(lid):
     """Datos de la célula que el informe exprés toma SOLOS del líder (pastor,
-    género/red, dirección, comuna y horario). El formulario interno de informe
-    hace lo mismo, para que lo que registra un admin sea idéntico a lo que
-    carga el líder. El pastor es el REAL (sube la cadena de líderes)."""
+    género/red, dirección, ubicación y horario). La ubicación es la última
+    informada por el líder (o, si aún no hay, la comuna de su domicilio); el
+    formulario la muestra en cascada y permite corregirla. El formulario
+    interno de informe hace lo mismo, para que lo que registra un admin sea
+    idéntico a lo que carga el líder. El pastor es el REAL (sube la cadena de
+    líderes)."""
     d = q("""SELECT l.id, l.red, h.nombre_completo, h.direccion,
-                    c.nombre AS comuna,
+                    COALESCE(
+                        (SELECT ci.comuna_id FROM celulas_informe ci
+                          WHERE ci.lider_id=l.id AND ci.comuna_id IS NOT NULL
+                          ORDER BY ci.created_at DESC LIMIT 1),
+                        h.comuna_id) AS comuna_id,
                     (SELECT ci.horario FROM celulas_informe ci
                      WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS horario
              FROM lideres l
              JOIN hermanos h ON h.id=l.hermano_id
-             LEFT JOIN comunas c ON c.id=h.comuna_id
              WHERE l.id=%s AND l.activo""", (lid,), one=True)
     if not d:
         return None
+    d["comuna"] = ""
+    d["provincia"] = ""
+    d["region"] = ""
+    cd = comuna_de_id(d.get("comuna_id"))
+    if cd:
+        d["comuna"] = cd["nombre"]
+        d["provincia"] = cd["provincia"]
+        d["region"] = cd["region"]
     d["pastor_id"] = pastor_de_lider(lid)
     d["pastor"] = ""
     if d["pastor_id"]:
@@ -3348,7 +3446,17 @@ def informe_codigo():
                        i.nombre AS iglesia_nombre, COALESCE(i.activo,true) AS iglesia_activa,
                        hp.nombre_completo AS pastor_nombre,
                        h.direccion,
-                       c.nombre AS comuna,
+                       COALESCE(
+                           (SELECT ci.comuna_id FROM celulas_informe ci
+                             WHERE ci.lider_id=l.id AND ci.comuna_id IS NOT NULL
+                             ORDER BY ci.created_at DESC LIMIT 1),
+                           h.comuna_id) AS comuna_id,
+                       COALESCE(
+                           (SELECT cc.nombre FROM celulas_informe ci
+                              JOIN comunas cc ON cc.id=ci.comuna_id
+                             WHERE ci.lider_id=l.id AND ci.comuna_id IS NOT NULL
+                             ORDER BY ci.created_at DESC LIMIT 1),
+                           c.nombre) AS comuna,
                        (SELECT ci.horario FROM celulas_informe ci
                         WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS horario,
                        (SELECT ci.modalidad FROM celulas_informe ci
@@ -3427,7 +3535,17 @@ def _mostrar_formulario_informe():
                        i.nombre AS iglesia_nombre,
                        hp.nombre_completo AS pastor,
                        h.direccion,
-                       c.nombre AS comuna,
+                       COALESCE(
+                           (SELECT ci.comuna_id FROM celulas_informe ci
+                             WHERE ci.lider_id=l.id AND ci.comuna_id IS NOT NULL
+                             ORDER BY ci.created_at DESC LIMIT 1),
+                           h.comuna_id) AS comuna_id,
+                       COALESCE(
+                           (SELECT cc.nombre FROM celulas_informe ci
+                              JOIN comunas cc ON cc.id=ci.comuna_id
+                             WHERE ci.lider_id=l.id AND ci.comuna_id IS NOT NULL
+                             ORDER BY ci.created_at DESC LIMIT 1),
+                           c.nombre) AS comuna,
                        (SELECT ci.horario FROM celulas_informe ci
                         WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS horario,
                        (SELECT ci.modalidad FROM celulas_informe ci
@@ -3470,6 +3588,10 @@ def _mostrar_formulario_informe():
     # excepción es un borrador por un guardado fallido, para no perder lo que
     # el líder ya había escrito.
     borrador = session.pop("informe_borrador", None)
+    # Ubicación de la célula: si el guardado anterior falló se conserva lo que
+    # el líder había elegido; si no, se precarga la última ubicación informada
+    # (o el domicilio). La cascada permite corregirla en cada informe.
+    sel_comuna = (borrador or {}).get("comuna_id") or lider.get("comuna_id")
     pregunta = nuevo_captcha("captcha_informe2")
     return render_template("informe_express.html",
                            lider=lider,
@@ -3482,7 +3604,10 @@ def _mostrar_formulario_informe():
                            fecha_hoy=hoy.isoformat(),
                            semana_actual=semana_actual(),
                            modalidades=get_catalogo("catalogo_modalidad_celula", iglesia=lider["iglesia_id"] or 1),
-                           iglesia_nombre=lider["iglesia_nombre"])
+                           iglesia_nombre=lider["iglesia_nombre"],
+                           arbol=_arbol_comunas(), sel_comuna=sel_comuna,
+                           campo="comuna_id", requerido=True,
+                           ubicacion=comuna_de_id(sel_comuna))
 
 @app.post("/informe/guardar")
 def informe_guardar():
@@ -3525,6 +3650,25 @@ def informe_guardar():
     # No permitir fechas futuras
     if fecha_sel > hoy_chile():
         flash("La fecha no puede ser futura.", "error")
+        return redirect(url_for("informe_express"))
+
+    # Ubicación de la célula (región → provincia → comuna). La región y la
+    # provincia se resuelven desde la comuna elegida, no desde el formulario.
+    cd = comuna_de_id(f.get("comuna_id"))
+    if not cd:
+        session["informe_borrador"] = {
+            "fecha": f.get("fecha", ""),
+            "timoteo": (f.get("timoteo") or "").strip(),
+            "realizo": "1" if f.get("realizo") == "1" else "0",
+            "justificacion": (f.get("justificacion") or "").strip(),
+            "asistieron": f.get("asistieron") or "",
+            "no_asistieron": f.get("no_asistieron") or "",
+            "ofrenda": f.get("ofrenda") or "",
+            "tipo_ofrenda": f.get("tipo_ofrenda") or "",
+            "modalidad": f.get("modalidad") or "",
+            "comuna_id": (f.get("comuna_id") or "").strip(),
+        }
+        flash("Selecciona la región, provincia y comuna donde se reúne tu célula.", "error")
         return redirect(url_for("informe_express"))
 
     mes_sel = MESES_ES[fecha_sel.month]
@@ -3570,7 +3714,17 @@ def informe_guardar():
     # cadena de líder_padre_id hasta una PASTORA / PASTOR / APOSTOL).
     ldata = q("""SELECT l.lider_padre_id, l.red, l.iglesia_id,
                        h.direccion,
-                       c.nombre AS comuna,
+                       COALESCE(
+                           (SELECT ci.comuna_id FROM celulas_informe ci
+                             WHERE ci.lider_id=l.id AND ci.comuna_id IS NOT NULL
+                             ORDER BY ci.created_at DESC LIMIT 1),
+                           h.comuna_id) AS comuna_id,
+                       COALESCE(
+                           (SELECT cc.nombre FROM celulas_informe ci
+                              JOIN comunas cc ON cc.id=ci.comuna_id
+                             WHERE ci.lider_id=l.id AND ci.comuna_id IS NOT NULL
+                             ORDER BY ci.created_at DESC LIMIT 1),
+                           c.nombre) AS comuna,
                        (SELECT ci.horario FROM celulas_informe ci
                         WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS horario,
                        (SELECT ci.modalidad FROM celulas_informe ci
@@ -3591,24 +3745,28 @@ def informe_guardar():
     try:
         if existente:
             q("""UPDATE celulas_informe SET
-                     pastor_id=%s, mes=%s, red=%s, direccion=%s, comuna=%s, horario=%s,
+                     pastor_id=%s, mes=%s, red=%s, direccion=%s, comuna=%s,
+                     region_id=%s, provincia_id=%s, comuna_id=%s, horario=%s,
                      realizo=%s, justificacion=%s, discipulos_asistieron=%s,
                      discipulos_no_asistieron=%s, ofrenda=%s, tipo_ofrenda=%s, modalidad=%s,
                      timoteo_id=%s
                  WHERE id=%s""",
                 (ldata["pastor_id"], mes_sel, ldata["red"], ldata["direccion"],
-                 ldata["comuna"], ldata["horario"], realizo, justificacion,
+                 cd["nombre"], cd["region_id"], cd["provincia_id"], cd["id"],
+                 ldata["horario"], realizo, justificacion,
                  f.get("asistieron"), f.get("no_asistieron"),
                  f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
                  timoteo_id, existente["id"]), commit=True)
         else:
             q("""INSERT INTO celulas_informe
-                    (lider_id, pastor_id, fecha, mes, red, direccion, comuna, horario,
+                    (lider_id, pastor_id, fecha, mes, red, direccion, comuna,
+                     region_id, provincia_id, comuna_id, horario,
                      realizo, justificacion, discipulos_asistieron, discipulos_no_asistieron,
                      ofrenda, tipo_ofrenda, modalidad, timoteo_id, iglesia_id)
-                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (lid, ldata["pastor_id"], fecha_sel, mes_sel,
-                 ldata["red"], ldata["direccion"], ldata["comuna"], ldata["horario"],
+                 ldata["red"], ldata["direccion"], cd["nombre"],
+                 cd["region_id"], cd["provincia_id"], cd["id"], ldata["horario"],
                  realizo, justificacion, f.get("asistieron"), f.get("no_asistieron"),
                  f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
                  timoteo_id, ldata["iglesia_id"] or 1), commit=True)
@@ -3632,6 +3790,7 @@ def informe_guardar():
             "ofrenda": f.get("ofrenda") or "",
             "tipo_ofrenda": f.get("tipo_ofrenda") or "",
             "modalidad": f.get("modalidad") or "",
+            "comuna_id": (f.get("comuna_id") or "").strip(),
         }
         flash(mensaje_error_informe(e), "error")
         print(f"informe_guardar error: {type(e).__name__}: {e}")
