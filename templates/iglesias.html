@@ -10,7 +10,7 @@
 <td><span class="badge bg-secondary" title="Prefijo de códigos de hermanos">{{r.prefijo_codigo or '—'}}</span></td>
 <td>{{r.padre_nombre or '—'}}</td>
 <td class="small">{{r.descripcion or '—'}}</td>
-<td class="small">{{r.created_at.strftime('%d/%m/%Y') if r.created_at else '—'}}</td>
+<td class="small">{{r.created_at_local.strftime('%d/%m/%Y') if r.created_at_local else '-'}}</td>
 <td>{{r.hermanos}}</td><td>{{r.lideres}}</td><td>{{r.usuarios}}</td>
 <td>{{'✅' if r.activo else '❌'}}</td>
 <td class="text-nowrap"><a class="btn btn-sm btn-outline-primary" href="/iglesias/{{r.id}}/editar">✏️</a>

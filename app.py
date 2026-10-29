@@ -1179,7 +1179,8 @@ def puede_gestionar_rol(rol_objetivo, uid_objetivo=None):
 @permiso_req("usuarios", "leer")
 def usuarios():
     fi, pi = filtro_igl("u")
-    users = q(f"""SELECT u.*, h.nombre_completo AS h_nombre, l2.nombre_completo AS l_nombre, i.nombre AS iglesia
+    users = q(f"""SELECT u.*, h.nombre_completo AS h_nombre, l2.nombre_completo AS l_nombre, i.nombre AS iglesia,
+        (u.ultimo_login AT TIME ZONE 'America/Santiago') AS ultimo_login_local
         FROM usuarios u LEFT JOIN hermanos h ON h.id=u.hermano_id LEFT JOIN lideres l ON l.id=u.lider_id
         LEFT JOIN hermanos l2 ON l2.id=l.hermano_id LEFT JOIN iglesias i ON i.id=u.iglesia_id
         WHERE 1=1{fi} ORDER BY u.rol, u.username""", tuple(pi))
@@ -1397,7 +1398,8 @@ def iglesias():
     rows = q("""SELECT i.*, p.nombre AS padre_nombre,
         (SELECT COUNT(*) FROM hermanos h WHERE h.iglesia_id=i.id AND h.activo) AS hermanos,
         (SELECT COUNT(*) FROM lideres l WHERE l.iglesia_id=i.id AND l.activo) AS lideres,
-        (SELECT COUNT(*) FROM usuarios u WHERE u.iglesia_id=i.id AND u.activo) AS usuarios
+        (SELECT COUNT(*) FROM usuarios u WHERE u.iglesia_id=i.id AND u.activo) AS usuarios,
+        (i.created_at AT TIME ZONE 'America/Santiago') AS created_at_local
         FROM iglesias i LEFT JOIN iglesias p ON p.id=i.iglesia_padre_id ORDER BY i.id""")
     return render_template("iglesias.html", rows=rows)
 
@@ -3969,7 +3971,8 @@ def reportes():
         if r["lider_info"]:
             r["lider_detalle"] = q("""SELECT ci.fecha, ci.mes, ci.red, ci.realizo, ci.justificacion,
                 ci.discipulos_asistieron, ci.discipulos_no_asistieron, ci.ofrenda,
-                ci.tipo_ofrenda, ci.modalidad, ci.created_at,
+                ci.tipo_ofrenda, ci.modalidad,
+                (ci.created_at AT TIME ZONE 'America/Santiago') AS created_at,
                 ht.nombre_completo AS timoteo
                 FROM celulas_informe ci
                 LEFT JOIN hermanos ht ON ht.id=ci.timoteo_id

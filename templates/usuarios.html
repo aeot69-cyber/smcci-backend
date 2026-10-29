@@ -22,7 +22,7 @@
 <td><span class="badge bg-{{'danger' if u.rol=='SUPERADMIN' else 'primary' if u.rol in ('ADMIN','ADMIN_HIJA','ADMIN_GRUPO') else 'secondary'}}">{{u.rol}}</span></td>
 <td><span class="badge bg-warning text-dark">{{u.iglesia or '—'}}</span></td>
 <td>{{u.vinculo or '—'}}</td>
-<td>{{u.ultimo_login.strftime('%d/%m/%Y %H:%M') if u.ultimo_login else 'Nunca'}}</td>
+<td>{{u.ultimo_login_local.strftime('%d/%m/%Y %H:%M') if u.ultimo_login_local else 'Nunca'}}</td>
 <td>{{'✅ Activo' if u.activo else '❌ Inactivo'}}</td>
 <td>
 {% if tiene_permiso('usuarios','editar') %}
