@@ -74,14 +74,49 @@
 
   <div class="row g-3">
     <div class="col-12">
-      <label class="form-label">Discípulos que asistieron</label>
-      <textarea class="form-control" name="asistieron" rows="2"
-                placeholder="Nombres separados por coma...">{{ (c.discipulos_asistieron or '') if c else '' }}</textarea>
+      <label class="form-label fw-bold">Discípulos de la célula</label>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-1">
+          <thead class="table-light">
+            <tr>
+              <th>Nombre</th>
+              <th class="text-center" style="width:90px">¿Vino?</th>
+              <th style="width:45%">Motivo si no vino</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyDiscipulos">
+            {% for t in discipulos %}
+            {% set est = casillas.get(t.id, {'v': true, 'm': ''}) %}
+            <tr>
+              <td>{{ t.nombre_completo }}</td>
+              <td class="text-center">
+                <input class="form-check-input" type="checkbox" name="discipulo_{{ t.id }}"
+                       value="1" id="disc{{ t.id }}"{% if est.v %} checked{% endif %}>
+              </td>
+              <td>
+                <input class="form-control form-control-sm" name="motivo_{{ t.id }}"
+                       maxlength="120" placeholder="Opcional" value="{{ est.m }}">
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-muted small">Este líder aún no tiene discípulos registrados.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <input type="hidden" name="disc_ids" id="discIds"
+             value="{% for t in discipulos %}{{ t.id }}{% if not loop.last %},{% endif %}{% endfor %}">
+      <div class="form-text mb-2">Vienen todos marcados como "vinieron". Desmarca a los que no vinieron y anota el motivo (opcional).</div>
     </div>
-    <div class="col-12">
-      <label class="form-label">Discípulos que NO asistieron (nombre - motivo)</label>
-      <textarea class="form-control" name="no_asistieron" rows="2"
-                placeholder="Juan - trabajo; María - enfermedad...">{{ (c.discipulos_no_asistieron or '') if c else '' }}</textarea>
+    <div class="col-md-6">
+      <label class="form-label">Otros que asistieron</label>
+      <textarea class="form-control" name="otros_si" rows="2"
+                placeholder="Nombres que no están en la lista, separados por coma...">{{ otros_si }}</textarea>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Otros que NO asistieron (nombre - motivo)</label>
+      <textarea class="form-control" name="otros_no" rows="2"
+                placeholder="Juan - trabajo; María - enfermedad...">{{ otros_no }}</textarea>
     </div>
     <div class="col-md-6">
       <label class="form-label">Ofrenda</label>
@@ -131,6 +166,34 @@
     siRadio.addEventListener('change', function(){ divNo.style.display = 'none'; });
   }
 
+  // Discípulos del líder: una fila por discípulo con casilla "vino" y motivo.
+  // Solo se repinta cuando cambia el líder (al abrir el formulario las filas
+  // ya vienen precargadas del servidor con las casillas del informe).
+  function pintarDiscipulos(lista){
+    var tb = document.getElementById('tbodyDiscipulos');
+    var ids = document.getElementById('discIds');
+    if(!tb) return;
+    tb.innerHTML = '';
+    var partes = [];
+    (lista || []).forEach(function(d){
+      if(!/^\d+$/.test(String(d.id))) return;
+      partes.push(String(d.id));
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td></td>' +
+        '<td class="text-center"><input class="form-check-input" type="checkbox" ' +
+        'name="discipulo_' + d.id + '" value="1" checked></td>' +
+        '<td><input class="form-control form-control-sm" name="motivo_' + d.id + '" ' +
+        'maxlength="120" placeholder="Opcional" value=""></td>';
+      tr.firstChild.textContent = d.nombre || '';
+      tb.appendChild(tr);
+    });
+    if(!partes.length){
+      tb.innerHTML = '<tr><td colspan="3" class="text-muted small">' +
+                     'Este líder aún no tiene discípulos registrados.</td></tr>';
+    }
+    if(ids) ids.value = partes.join(',');
+  }
+
   // Timoteos del líder elegido + ayuda y datos de la célula. El texto de ayuda
   // viene del servidor (mismo texto editable que ve el líder en el exprés).
   var TIMOTEO_ACTUAL = "{{ (c.timoteo_id if c and c.timoteo_id else '') }}";
@@ -154,6 +217,7 @@
         sel.appendChild(o);
       });
       if(d.ayuda) txt.innerHTML = d.ayuda;
+      if (esCambio) pintarDiscipulos(d.timoteos || []);
       if(d.lider){
         document.getElementById('infNombre').textContent = d.lider.nombre;
         var partes = [];

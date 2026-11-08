@@ -3028,6 +3028,189 @@ def visitas_importar():
               % (omi, blo), "error")
     return redirect(url_for("visitas"))
 
+# ---------- ASISTENCIA POR DISCÍPULO EN EL INFORME ----------
+# El formulario muestra una fila por discípulo del líder con casilla
+# "vino / no vino" y un motivo opcional para los que no vinieron. Los dos
+# textos antiguos (discipulos_asistieron / discipulos_no_asistieron) siguen
+# escribiéndose a partir de esas casillas, porque los consumen reportes,
+# Excel, PDF y el conteo de asistencia; las casillas quedan además en
+# celulas_informe_discipulos para futuras estadísticas por discípulo.
+
+def _discipulos_lider(lid):
+    """Discípulos del líder: mismas filas que muestra el selector de timoteo."""
+    return q(_SQL_TIMOTEOS, (lid, lid)) if lid else []
+
+
+def _trozos(txt, seps):
+    """Divide un texto en piezas (por coma, punto y coma o salto de línea)."""
+    return [p.strip() for p in _re.split(seps, txt or "") if p and p.strip()]
+
+
+def _partir_nombre_motivo(p):
+    """'Juan - trabajo' -> ('Juan', 'trabajo')."""
+    p = p.replace("–", "-").replace("—", "-")
+    nombre, _, motivo = p.partition("-")
+    return nombre.strip(), motivo.strip()
+
+
+def _repartir_por_nombre(txt_si, txt_no, discipulos):
+    """Reparte los dos textos antiguos en las casillas por discípulo,
+    casillando por nombre (sin distinguir mayúsculas ni tildes). Solo se
+    convierte en casilla una entrada que es exactamente el nombre de un
+    discípulo (o su forma corta, si es única); todo lo demás se deja como
+    'otros' tal como venía escrito, para no perder ni una letra. Devuelve
+    (casillas, otros_si, otros_no)."""
+    por_nom = {_norm_txt(d["nombre_completo"]): d["id"] for d in discipulos}
+    otros_si, otros_no = [], []
+
+    def buscar(nombre):
+        n = _norm_txt(nombre)
+        if not n:
+            return None
+        i = por_nom.get(n)
+        if i is not None:
+            return i
+        # Forma corta ('Juan' por 'Juan Pérez'): solo si es única en la lista.
+        # Ojo: al revés NO se busca, para que una entrada como
+        # 'Joaquín Olivares por trabajo fuera de Santiago' no se coma el resto.
+        if len(n) < 3:
+            return None
+        cand = [d["id"] for d in discipulos
+                if _norm_txt(d["nombre_completo"]).startswith(n)]
+        return cand[0] if len(cand) == 1 else None
+
+    casillas = {}
+    for p in _trozos(txt_si, r"[,;\n]"):
+        i = buscar(p)
+        if i is None:
+            otros_si.append(p)
+        else:
+            casillas[i] = {"v": True, "m": ""}
+    for p in _trozos(txt_no, r"[;\n]"):
+        nombre, motivo = _partir_nombre_motivo(p)
+        i = buscar(nombre) if nombre else None
+        if i is None:
+            otros_no.append(p)
+        else:
+            casillas[i] = {"v": False, "m": motivo}
+    return casillas, ", ".join(otros_si), "; ".join(otros_no)
+
+
+def _leer_asistencia(f, lid, discipulos=None):
+    """Lee las casillas del formulario. Devuelve (filas, txt_si, txt_no):
+    `filas` es lo que se guarda en celulas_informe_discipulos y los dos
+    textos son los que siguen consumiendo reportes y estadísticas."""
+    if discipulos is None:
+        discipulos = _discipulos_lider(lid)
+    por_id = {d["id"]: d["nombre_completo"] for d in discipulos}
+    filas, vinieron, faltaron, vistos = [], [], [], set()
+    # Ids que el formulario realmente mostró (viene en un campo oculto).
+    for s in (f.get("disc_ids") or "").split(","):
+        s = s.strip()
+        if not s.isdigit():
+            continue
+        i = int(s)
+        if i in vistos or i not in por_id:
+            continue
+        vistos.add(i)
+        nombre = por_id[i]
+        vino = f.get("discipulo_%d" % i) == "1"
+        motivo = "" if vino else (f.get("motivo_%d" % i) or "").strip()
+        filas.append({"discipulo_id": i, "nombre": nombre,
+                      "asistio": vino, "justificacion": motivo or None})
+        if vino:
+            vinieron.append(nombre)
+        else:
+            faltaron.append(nombre + (" - " + motivo if motivo else ""))
+    otros_si = ", ".join(_trozos(f.get("otros_si"), r"[,\n]"))
+    otros_no = "; ".join(_trozos(f.get("otros_no"), r"[;\n]"))
+    if otros_si:
+        filas.append({"discipulo_id": None, "nombre": otros_si,
+                      "asistio": True, "justificacion": None})
+    for p in _trozos(f.get("otros_no"), r"[;\n]"):
+        nombre, motivo = _partir_nombre_motivo(p)
+        filas.append({"discipulo_id": None, "nombre": nombre or p,
+                      "asistio": False, "justificacion": motivo or None})
+    txt_si = ", ".join(vinieron + ([otros_si] if otros_si else []))
+    txt_no = "; ".join(faltaron + ([otros_no] if otros_no else []))
+    return filas, txt_si, txt_no
+
+
+def _guardar_asistencia(informe_id, filas):
+    """Reemplaza las filas de asistencia del informe."""
+    q("DELETE FROM celulas_informe_discipulos WHERE informe_id=%s",
+      (informe_id,), commit=True)
+    if not filas:
+        return
+    c = db()
+    with c.cursor() as cur:
+        _execute_values(cur, """INSERT INTO celulas_informe_discipulos
+            (informe_id, discipulo_id, nombre, asistio, justificacion) VALUES %s""",
+            [(informe_id, x["discipulo_id"], x["nombre"], x["asistio"],
+              x["justificacion"]) for x in filas])
+        c.commit()
+
+
+def _asistencia_editable(c):
+    """Casillas para precargar el formulario al editar un informe. Si el
+    informe es anterior a la tabla (o quedó sin filas), se reconstruyen desde
+    los dos textos antiguos casillando por nombre. Devuelve
+    (casillas, otros_si, otros_no)."""
+    filas = q("""SELECT discipulo_id, nombre, asistio, justificacion
+                 FROM celulas_informe_discipulos WHERE informe_id=%s
+                 ORDER BY id""", (c["id"],))
+    if not filas:
+        return _repartir_por_nombre(c.get("discipulos_asistieron"),
+                                    c.get("discipulos_no_asistieron"),
+                                    _discipulos_lider(c.get("lider_id")))
+    casillas, otros_si, otros_no = {}, [], []
+    # Un discípulo que ya no está en la lista del líder no puede volver a
+    # casillarse: se pasa a "otros" para que su nombre no se pierda.
+    en_lista = {d["id"] for d in _discipulos_lider(c.get("lider_id"))}
+    for r in filas:
+        if r["discipulo_id"] is not None and r["discipulo_id"] in en_lista:
+            casillas[r["discipulo_id"]] = {"v": bool(r["asistio"]),
+                                           "m": r["justificacion"] or ""}
+        elif r["asistio"]:
+            otros_si.append(r["nombre"])
+        else:
+            otros_no.append(r["nombre"] +
+                            (" - " + r["justificacion"] if r["justificacion"] else ""))
+    return casillas, ", ".join(otros_si), "; ".join(otros_no)
+
+
+def _casillas_borrador(f):
+    """Casillas del formulario tal como se enviaron, sin validarlas contra la
+    lista del líder, para no perder nada si el guardado falla."""
+    casillas = {}
+    for s in (f.get("disc_ids") or "").split(","):
+        s = s.strip()
+        if s.isdigit():
+            casillas[s] = {"v": f.get("discipulo_" + s) == "1",
+                           "m": (f.get("motivo_" + s) or "").strip()}
+    return (casillas,
+            ", ".join(_trozos(f.get("otros_si"), r"[,\n]")),
+            "; ".join(_trozos(f.get("otros_no"), r"[;\n]")))
+
+
+def _borrador_informe(f):
+    """Estado del formulario para recordarlo si el guardado falla."""
+    casillas, otros_si, otros_no = _casillas_borrador(f)
+    return {
+        "fecha": f.get("fecha", ""),
+        "timoteo": (f.get("timoteo") or "").strip(),
+        "realizo": "1" if f.get("realizo") == "1" else "0",
+        "justificacion": (f.get("justificacion") or "").strip(),
+        "casillas": casillas,
+        "otros_si": otros_si,
+        "otros_no": otros_no,
+        "ofrenda": f.get("ofrenda") or "",
+        "tipo_ofrenda": f.get("tipo_ofrenda") or "",
+        "modalidad": f.get("modalidad") or "",
+        "comuna_id": (f.get("comuna_id") or "").strip(),
+    }
+
+
 # ---------- INFORME CÉLULA ----------
 @app.get("/celulas-informe")
 @login_req
@@ -3081,6 +3264,7 @@ def celulas_informe_nuevo():
                            modalidades=get_catalogo("catalogo_modalidad_celula"),
                            fecha_hoy=hoy_chile().isoformat(),
                            ayuda_timoteo=ayuda_timoteo(None),
+                           discipulos=[], casillas={}, otros_si="", otros_no="",
                            arbol=_arbol_comunas(), sel_comuna=None,
                            campo="comuna_id", requerido=True)
 
@@ -3104,20 +3288,29 @@ def celulas_informe_crear():
         flash("No se encontró el líder elegido.", "error")
         return redirect(url_for("celulas_informe_nuevo"))
     cigl = iglesia_de("lideres", lid) or session.get("iglesia_id") or 1
+    # Casillas por discípulo: las filas van a la tabla y los dos textos
+    # (que siguen consumiendo reportes/Excel/PDF) se arman desde ellas.
+    filas, txt_si, txt_no = _leer_asistencia(f, lid)
     try:
-        q("""INSERT INTO celulas_informe
-                (lider_id, pastor_id, fecha, mes, red, direccion, comuna,
-                 region_id, provincia_id, comuna_id, horario,
-                 realizo, justificacion, discipulos_asistieron, discipulos_no_asistieron,
-                 ofrenda, tipo_ofrenda, modalidad, timoteo_id, iglesia_id)
-             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-          (lid, d["pastor_id"], fecha_sel, MESES_ES[fecha_sel.month], d["red"],
-           d["direccion"], cd["nombre"], cd["region_id"], cd["provincia_id"], cd["id"],
-           d["horario"],
-           f.get("realizo") == "1", (f.get("justificacion") or "").strip(),
-           f.get("asistieron"), f.get("no_asistieron"),
-           f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
-           timoteo_id, cigl), commit=True)
+        c = db()
+        with c.cursor() as cur:
+            cur.execute("""INSERT INTO celulas_informe
+                    (lider_id, pastor_id, fecha, mes, red, direccion, comuna,
+                     region_id, provincia_id, comuna_id, horario,
+                     realizo, justificacion, discipulos_asistieron, discipulos_no_asistieron,
+                     ofrenda, tipo_ofrenda, modalidad, timoteo_id, iglesia_id)
+                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 RETURNING id""",
+                (lid, d["pastor_id"], fecha_sel, MESES_ES[fecha_sel.month], d["red"],
+                 d["direccion"], cd["nombre"], cd["region_id"], cd["provincia_id"], cd["id"],
+                 d["horario"],
+                 f.get("realizo") == "1", (f.get("justificacion") or "").strip(),
+                 txt_si, txt_no,
+                 f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
+                 timoteo_id, cigl))
+            informe_id = cur.fetchone()["id"]
+            c.commit()
+        _guardar_asistencia(informe_id, filas)
         flash("Informe registrado", "ok")
     except Exception as e:
         flash(f"{mensaje_error_informe(e, admin=True)} El detalle quedó registrado "
@@ -3142,10 +3335,16 @@ def celulas_informe_editar(cid):
     # para que al editar no cambie sola.
     if c.get("modalidad") and not any(m["nombre"] == c["modalidad"] for m in modalidades):
         modalidades = list(modalidades) + [{"nombre": c["modalidad"]}]
+    # Casillas por discípulo: las que ya trae el informe; si es anterior a la
+    # tabla, se reconstruyen desde los dos textos antiguos casillando por nombre.
+    discipulos = _discipulos_lider(c.get("lider_id"))
+    casillas, otros_si, otros_no = _asistencia_editable(c)
     return render_template("celulas_informe_form.html", c=c, lideres=lideres,
                            modalidades=modalidades,
                            fecha_hoy=hoy_chile().isoformat(),
                            ayuda_timoteo=ayuda_timoteo(c.get("lider_id")),
+                           discipulos=discipulos, casillas=casillas,
+                           otros_si=otros_si, otros_no=otros_no,
                            arbol=_arbol_comunas(),
                            sel_comuna=c.get("comuna_id") or _comuna_lider(c.get("lider_id")),
                            campo="comuna_id", requerido=True)
@@ -3179,6 +3378,9 @@ def celulas_informe_update(cid):
             return redirect(url_for("celulas_informe_editar", cid=cid))
         pastor_id, red = d["pastor_id"], d["red"]
         direccion, horario = d["direccion"], d["horario"]
+    # Casillas por discípulo: las filas van a la tabla y los dos textos
+    # (que siguen consumiendo reportes/Excel/PDF) se arman desde ellas.
+    filas, txt_si, txt_no = _leer_asistencia(f, lid)
     try:
         q("""UPDATE celulas_informe SET
              lider_id=%s, pastor_id=%s, fecha=%s, mes=%s, red=%s, direccion=%s,
@@ -3190,8 +3392,9 @@ def celulas_informe_update(cid):
           (lid, pastor_id, fecha_sel, MESES_ES[fecha_sel.month], red, direccion,
            cd["nombre"], cd["region_id"], cd["provincia_id"], cd["id"],
            horario, f.get("realizo") == "1", (f.get("justificacion") or "").strip(),
-           f.get("asistieron"), f.get("no_asistieron"), f.get("ofrenda") or "0",
+           txt_si, txt_no, f.get("ofrenda") or "0",
            f.get("tipo_ofrenda"), f.get("modalidad"), timoteo_id, cid), commit=True)
+        _guardar_asistencia(cid, filas)
         log_audit("EDITAR","celulas", f"id={cid}")
         flash("Informe actualizado", "ok")
     except Exception as e:
@@ -3604,6 +3807,17 @@ def _mostrar_formulario_informe():
     # excepción es un borrador por un guardado fallido, para no perder lo que
     # el líder ya había escrito.
     borrador = session.pop("informe_borrador", None)
+    # Casillas por discípulo: si hubo un borrador se recuerda lo que el líder
+    # había marcado; si no, todos quedan marcados como "vinieron" (estado por
+    # defecto) y el motivo queda vacío.
+    casillas = {}
+    for k, v in ((borrador or {}).get("casillas") or {}).items():
+        try:
+            casillas[int(k)] = v
+        except (TypeError, ValueError):
+            pass
+    otros_si = (borrador or {}).get("otros_si") or ""
+    otros_no = (borrador or {}).get("otros_no") or ""
     # Ubicación de la célula: si el guardado anterior falló se conserva lo que
     # el líder había elegido; si no, se precarga la última ubicación informada
     # (o el domicilio). La cascada permite corregirla en cada informe.
@@ -3613,6 +3827,7 @@ def _mostrar_formulario_informe():
                            lider=lider,
                            existente=None,
                            borrador=borrador,
+                           casillas=casillas, otros_si=otros_si, otros_no=otros_no,
                            timoteos=timoteos,
                            informes_semana=n_sem or 0,
                            captcha_pregunta2=pregunta,
@@ -3672,18 +3887,7 @@ def informe_guardar():
     # provincia se resuelven desde la comuna elegida, no desde el formulario.
     cd = comuna_de_id(f.get("comuna_id"))
     if not cd:
-        session["informe_borrador"] = {
-            "fecha": f.get("fecha", ""),
-            "timoteo": (f.get("timoteo") or "").strip(),
-            "realizo": "1" if f.get("realizo") == "1" else "0",
-            "justificacion": (f.get("justificacion") or "").strip(),
-            "asistieron": f.get("asistieron") or "",
-            "no_asistieron": f.get("no_asistieron") or "",
-            "ofrenda": f.get("ofrenda") or "",
-            "tipo_ofrenda": f.get("tipo_ofrenda") or "",
-            "modalidad": f.get("modalidad") or "",
-            "comuna_id": (f.get("comuna_id") or "").strip(),
-        }
+        session["informe_borrador"] = _borrador_informe(f)
         flash("Selecciona la región, provincia y comuna donde se reúne tu célula.", "error")
         return redirect(url_for("informe_express"))
 
@@ -3758,8 +3962,14 @@ def informe_guardar():
         return redirect(url_for("informe_express"))
     ldata["pastor_id"] = pastor_de_lider(lid)
 
+    # Casillas por discípulo: las filas van a la tabla y los dos textos
+    # (que siguen consumiendo reportes/Excel/PDF/estadísticas) se arman
+    # desde ellas, para que no cambie nada de lo que ya está en producción.
+    filas, txt_si, txt_no = _leer_asistencia(f, lid)
+
     try:
         if existente:
+            informe_id = existente["id"]
             q("""UPDATE celulas_informe SET
                      pastor_id=%s, mes=%s, red=%s, direccion=%s, comuna=%s,
                      region_id=%s, provincia_id=%s, comuna_id=%s, horario=%s,
@@ -3770,22 +3980,28 @@ def informe_guardar():
                 (ldata["pastor_id"], mes_sel, ldata["red"], ldata["direccion"],
                  cd["nombre"], cd["region_id"], cd["provincia_id"], cd["id"],
                  ldata["horario"], realizo, justificacion,
-                 f.get("asistieron"), f.get("no_asistieron"),
+                 txt_si, txt_no,
                  f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
-                 timoteo_id, existente["id"]), commit=True)
+                 timoteo_id, informe_id), commit=True)
         else:
-            q("""INSERT INTO celulas_informe
-                    (lider_id, pastor_id, fecha, mes, red, direccion, comuna,
-                     region_id, provincia_id, comuna_id, horario,
-                     realizo, justificacion, discipulos_asistieron, discipulos_no_asistieron,
-                     ofrenda, tipo_ofrenda, modalidad, timoteo_id, iglesia_id)
-                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (lid, ldata["pastor_id"], fecha_sel, mes_sel,
-                 ldata["red"], ldata["direccion"], cd["nombre"],
-                 cd["region_id"], cd["provincia_id"], cd["id"], ldata["horario"],
-                 realizo, justificacion, f.get("asistieron"), f.get("no_asistieron"),
-                 f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
-                 timoteo_id, ldata["iglesia_id"] or 1), commit=True)
+            c = db()
+            with c.cursor() as cur:
+                cur.execute("""INSERT INTO celulas_informe
+                        (lider_id, pastor_id, fecha, mes, red, direccion, comuna,
+                         region_id, provincia_id, comuna_id, horario,
+                         realizo, justificacion, discipulos_asistieron, discipulos_no_asistieron,
+                         ofrenda, tipo_ofrenda, modalidad, timoteo_id, iglesia_id)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     RETURNING id""",
+                    (lid, ldata["pastor_id"], fecha_sel, mes_sel,
+                     ldata["red"], ldata["direccion"], cd["nombre"],
+                     cd["region_id"], cd["provincia_id"], cd["id"], ldata["horario"],
+                     realizo, justificacion, txt_si, txt_no,
+                     f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
+                     timoteo_id, ldata["iglesia_id"] or 1))
+                informe_id = cur.fetchone()["id"]
+                c.commit()
+        _guardar_asistencia(informe_id, filas)
         log_audit("INFORME_EXPRESS", "celulas", f"lider={lid} realizo={realizo} ip={ip}")
         session["informe_expira"] = time.time() + INFORME_SESION_SEG  # refresca ventana tras enviar
         session.pop("informe_borrador", None)  # ya quedó guardado
@@ -3796,18 +4012,7 @@ def informe_guardar():
         # repetir el formulario (se usa al volver a /informe y se limpia al
         # enviar con éxito). El mensaje que ve el líder es amable; el detalle
         # técnico queda en el log y en Configuración › pestaña de errores.
-        session["informe_borrador"] = {
-            "fecha": f.get("fecha", ""),
-            "timoteo": (f.get("timoteo") or "").strip(),
-            "realizo": "1" if realizo else "0",
-            "justificacion": (f.get("justificacion") or "").strip(),
-            "asistieron": f.get("asistieron") or "",
-            "no_asistieron": f.get("no_asistieron") or "",
-            "ofrenda": f.get("ofrenda") or "",
-            "tipo_ofrenda": f.get("tipo_ofrenda") or "",
-            "modalidad": f.get("modalidad") or "",
-            "comuna_id": (f.get("comuna_id") or "").strip(),
-        }
+        session["informe_borrador"] = _borrador_informe(f)
         flash(mensaje_error_informe(e), "error")
         print(f"informe_guardar error: {type(e).__name__}: {e}")
         log_error_informe("INFORME_EXPRESS", lid, e,
