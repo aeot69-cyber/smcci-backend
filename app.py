@@ -3430,9 +3430,20 @@ def celulas_informe_timoteos(lid):
         return jsonify(ok=False, error="iglesia"), 403
     rows = q(_SQL_TIMOTEOS, (lid, lid))
     d = datos_celula_lider(lid)
+    # Último informe del líder: sirve para avisar en el formulario que esa fecha
+    # ya tiene informe (y que para corregirlo hay que usar la ✏️ de la lista).
+    ult = q("""SELECT id, fecha FROM celulas_informe
+               WHERE lider_id=%s
+               ORDER BY fecha DESC, created_at DESC LIMIT 1""",
+            (lid,), one=True)
+    ult_fecha = None
+    if ult and ult.get("fecha"):
+        f = ult["fecha"]
+        ult_fecha = f.isoformat() if hasattr(f, "isoformat") else str(f)
     return jsonify(ok=True,
                    timoteos=[{"id": r["id"], "nombre": r["nombre_completo"]} for r in rows],
                    ayuda=str(ayuda_timoteo(lid)),
+                   ultimo_informe=({"id": ult["id"], "fecha": ult_fecha} if ult else None),
                    lider=({"nombre": d["nombre_completo"], "red": d["red"] or "",
                            "pastor": d["pastor"] or "", "direccion": d["direccion"] or "",
                            "comuna": d["comuna"] or "", "provincia": d["provincia"] or "",
@@ -3613,7 +3624,8 @@ def _leer_informe_interno(f):
 def _limpiar_sesion_informe():
     """Borra todas las claves de sesión del informe exprés."""
     for k in ("informe_lider_id", "informe_lider_nombre",
-              "informe_iglesia_id", "informe_iglesia_nombre", "informe_expira"):
+              "informe_iglesia_id", "informe_iglesia_nombre", "informe_expira",
+              "informe_editando"):
         session.pop(k, None)
 
 @app.get("/informe")
@@ -3627,6 +3639,12 @@ def informe_express():
             flash("Tu sesión expiró a los 30 minutos. Ingresa tu código de líder nuevamente para continuar.", "error")
         else:
             session["informe_expira"] = time.time() + INFORME_SESION_SEG  # ventana deslizante
+            if request.args.get("nuevo"):
+                session.pop("informe_editando", None)  # "Enviar otro informe": modo alta
+            if request.args.get("editado"):
+                return render_template("informe_enviado.html",
+                                       nombre=session.get("informe_lider_nombre"),
+                                       editado=True)
             if request.args.get("enviado"):
                 return render_template("informe_enviado.html",
                                        nombre=session.get("informe_lider_nombre"))
@@ -3638,6 +3656,33 @@ def informe_express():
                            captcha_pregunta=pregunta,
                            turnstile_sitekey=turnstile_sitekey_visible(),
                            semana_actual=semana_actual())
+
+@app.get("/informe/editar")
+def informe_editar():
+    """Abre el último informe del líder ya precargado para corregirlo.
+    La fecha queda bloqueada y al guardar se actualiza ese mismo informe."""
+    lid = session.get("informe_lider_id")
+    if not lid:
+        flash("Ingresa tu código de líder para editar tu informe.", "error")
+        return redirect(url_for("informe_express"))
+    # Caducidad (30 min): misma regla que el resto del flujo exprés.
+    exp = session.get("informe_expira")
+    if exp is None or time.time() > float(exp):
+        _limpiar_sesion_informe()
+        flash("Tu sesión expiró a los 30 minutos. Ingresa tu código de líder nuevamente para continuar.", "error")
+        return redirect(url_for("informe_express"))
+
+    ult = q("""SELECT * FROM celulas_informe
+               WHERE lider_id=%s
+               ORDER BY fecha DESC, created_at DESC LIMIT 1""",
+            (lid,), one=True)
+    if not ult:
+        flash("Todavía no tienes informes para editar.", "error")
+        return redirect(url_for("informe_express"))
+
+    session["informe_editando"] = ult["id"]
+    session["informe_expira"] = time.time() + INFORME_SESION_SEG
+    return _mostrar_formulario_informe(borrador=_borrador_desde_informe(ult), editar=True)
 
 @app.post("/informe/codigo")
 def informe_codigo():
@@ -3742,11 +3787,38 @@ def _bloqueo_por_codigo(codigo, ip):
         print(f"_bloqueo_por_codigo failed: {e}")
     return 0
 
-def _mostrar_formulario_informe():
-    """Muestra el formulario con datos pre-cargados del líder."""
+def _borrador_desde_informe(c):
+    """Copia un informe existente al formato del borrador del formulario, para
+    que el líder pueda corregirlo sin tener que llenar todo de nuevo."""
+    casillas, otros_si, otros_no = _asistencia_editable(c)
+    fecha = c.get("fecha")
+    ofrenda = c.get("ofrenda")
+    return {
+        "fecha": fecha.isoformat() if hasattr(fecha, "isoformat") else str(fecha or ""),
+        "timoteo": str(c.get("timoteo_id") or ""),
+        "realizo": "1" if c.get("realizo") else "0",
+        "justificacion": c.get("justificacion") or "",
+        "casillas": {str(k): v for k, v in casillas.items()},
+        "otros_si": otros_si,
+        "otros_no": otros_no,
+        "ofrenda": "" if ofrenda is None else str(ofrenda),
+        "tipo_ofrenda": c.get("tipo_ofrenda") or "",
+        "modalidad": c.get("modalidad") or "",
+        "comuna_id": str(c.get("comuna_id") or ""),
+    }
+
+
+def _mostrar_formulario_informe(borrador=None, editar=False):
+    """Muestra el formulario con datos pre-cargados del líder. Con `borrador`
+    (un informe existente) sale corregible y con `editar` la fecha queda
+    bloqueada, para que al guardar se actualice ese mismo informe."""
     lid = session.get("informe_lider_id")
     if not lid:
         return redirect(url_for("informe_express"))
+    # Si el líder está corrigiendo su último informe (flag en sesión), se mantiene
+    # el modo edición también tras un error de validación, para que la fecha siga
+    # bloqueada y al guardar se actualice ese mismo informe.
+    editar = editar or bool(session.get("informe_editando"))
 
     # Datos fijos del líder (para precargar). El pastor que se muestra es el
     # REAL: sube la cadena de líder_padre_id hasta una PASTORA / PASTOR / APOSTOL.
@@ -3806,7 +3878,10 @@ def _mostrar_formulario_informe():
     # después de enviar uno el siguiente sale limpio para rellenar. La única
     # excepción es un borrador por un guardado fallido, para no perder lo que
     # el líder ya había escrito.
-    borrador = session.pop("informe_borrador", None)
+    # (Con `borrador` explícito —botón "Editar mi último informe"— no se toca
+    # el borrador de sesión: el informe a corregir manda.)
+    if borrador is None:
+        borrador = session.pop("informe_borrador", None)
     # Casillas por discípulo: si hubo un borrador se recuerda lo que el líder
     # había marcado; si no, todos quedan marcados como "vinieron" (estado por
     # defecto) y el motivo queda vacío.
@@ -3822,11 +3897,16 @@ def _mostrar_formulario_informe():
     # el líder había elegido; si no, se precarga la última ubicación informada
     # (o el domicilio). La cascada permite corregirla en cada informe.
     sel_comuna = (borrador or {}).get("comuna_id") or lider.get("comuna_id")
+    # ¿Tiene el líder informes previos? Si sí, se ofrece "Editar mi último informe".
+    n_informes = q("SELECT COUNT(*) AS c FROM celulas_informe WHERE lider_id=%s",
+                  (lid,), one=True)["c"] or 0
     pregunta = nuevo_captcha("captcha_informe2")
     return render_template("informe_express.html",
                            lider=lider,
                            existente=None,
                            borrador=borrador,
+                           editar=editar,
+                           puede_editar=n_informes > 0,
                            casillas=casillas, otros_si=otros_si, otros_no=otros_no,
                            timoteos=timoteos,
                            informes_semana=n_sem or 0,
@@ -4005,8 +4085,12 @@ def informe_guardar():
         log_audit("INFORME_EXPRESS", "celulas", f"lider={lid} realizo={realizo} ip={ip}")
         session["informe_expira"] = time.time() + INFORME_SESION_SEG  # refresca ventana tras enviar
         session.pop("informe_borrador", None)  # ya quedó guardado
-        # Éxito: pantalla de confirmación con botón "Enviar otro informe".
-        return redirect(url_for("informe_express", enviado=1))
+        # Si venía del botón "Editar mi último informe", se avisa que se ACTUALIZÓ;
+        # si no, la confirmación normal de "enviado".
+        editando = session.pop("informe_editando", None)
+        return redirect(url_for("informe_express",
+                                editado=1 if editando else None,
+                                enviado=None if editando else 1))
     except Exception as e:
         # Se conserva lo que el líder ya escribió, para que no tenga que
         # repetir el formulario (se usa al volver a /informe y se limpia al

@@ -48,6 +48,18 @@
       <small>Célula: {{ lider.red }} · Pastor: {{ lider.pastor }}{% if lider.direccion %} · {{ lider.direccion }}{% endif %}</small>
     </div>
 
+    {% if editar %}
+    <div class="alert alert-warning mb-3">
+      <strong>✏️ Editando tu último informe</strong><br>
+      <small>Corrige lo que necesites y guarda. La fecha queda bloqueada para actualizar <b>ese mismo</b> informe.</small>
+    </div>
+    {% elif puede_editar %}
+    <div class="d-grid mb-3">
+      <a class="btn btn-outline-primary" href="/informe/editar">✏️ Editar mi último informe</a>
+      <small class="text-muted text-center">¿Te equivocaste en algo? Abre tu último informe para corregirlo.</small>
+    </div>
+    {% endif %}
+
     <form method="post" action="/informe/guardar" id="formInforme">
       <input type="hidden" name="lider_id" value="{{ lider.id }}">
 
@@ -73,8 +85,14 @@
       <div class="mb-3">
         <label class="form-label fw-bold">Fecha de la célula *</label>
         <input class="form-control" type="date" name="fecha"
-               value="{{ borrador.fecha if borrador and borrador.fecha else fecha_hoy }}" required max="{{ fecha_hoy }}">
+               value="{{ borrador.fecha if borrador and borrador.fecha else fecha_hoy }}"
+               {% if editar %}readonly aria-readonly="true"{% endif %}
+               required max="{{ fecha_hoy }}">
+        {% if editar %}
+        <div class="form-text">🔒 Fecha bloqueada: se actualizará el informe de este día.</div>
+        {% else %}
         <div class="form-text">{{ ay('informe_express.ft.2') }}</div>
+        {% endif %}
       </div>
 
       <div class="mb-3">
@@ -133,7 +151,7 @@
           </div>
           <input type="hidden" name="disc_ids"
                  value="{% for t in timoteos %}{{ t.id }}{% if not loop.last %},{% endif %}{% endfor %}">
-          <div class="form-text mb-2">Vienen todos marcados como "vinieron". Desmarca a los que no vinieron y anota el motivo (opcional).</div>
+          <div class="form-text mb-2">{% if editar %}Así quedó guardado: revisa las casillas y los motivos, y corrige lo que haga falta.{% else %}Vienen todos marcados como "vinieron". Desmarca a los que no vinieron y anota el motivo (opcional).{% endif %}</div>
         </div>
         <div class="col-md-6">
           <label class="form-label">Otros que asistieron</label>
@@ -193,8 +211,8 @@
       {% endif %}
 
       <div class="d-grid gap-2">
-        <button class="btn btn-success" type="submit">✅ Enviar informe</button>
-        <button class="btn btn-outline-secondary btn-sm" type="reset">🧹 Limpiar campos</button>
+        <button class="btn btn-success" type="submit">{% if editar %}💾 Guardar cambios{% else %}✅ Enviar informe{% endif %}</button>
+        {% if not editar %}<button class="btn btn-outline-secondary btn-sm" type="reset">🧹 Limpiar campos</button>{% endif %}
         <a href="/informe/salir" class="btn btn-outline-secondary btn-sm">No soy yo / Cambiar código</a>
       </div>
       <small class="text-muted text-center d-block mt-2">Tu sesión caduca a los 30 minutos de inactividad.</small>

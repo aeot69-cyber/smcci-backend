@@ -1,5 +1,14 @@
 {% extends "publico.html" %}{% block b %}
 <div class="card p-4 text-center" style="max-width:520px;margin:2rem auto;">
+  {% if editado %}
+  <div style="font-size:3.2rem;line-height:1">💾</div>
+  <h4 class="text-success mt-2 mb-1">Informe actualizado correctamente</h4>
+  {% if nombre %}
+  <p class="text-muted mb-1">Gracias, <b>{{ nombre }}</b>. Los cambios quedaron guardados en tu informe.</p>
+  {% else %}
+  <p class="text-muted mb-1">Los cambios quedaron guardados en tu informe.</p>
+  {% endif %}
+  {% else %}
   <div style="font-size:3.2rem;line-height:1">✅</div>
   <h4 class="text-success mt-2 mb-1">Informe enviado correctamente</h4>
   {% if nombre %}
@@ -7,14 +16,13 @@
   {% else %}
   <p class="text-muted mb-1">Quedó registrado en el sistema.</p>
   {% endif %}
+  {% endif %}
 
   <hr class="my-3">
 
-  <p class="mb-3"><b>¿Tienes otro informe por enviar?</b><br>
-    <small class="text-muted">Al presionar el botón, el formulario queda <b>en blanco</b> para que llenes el siguiente.</small></p>
-
   <div class="d-grid gap-2">
-    <a class="btn btn-primary btn-lg" href="/informe">📤 Enviar otro informe</a>
+    <a class="btn btn-outline-primary btn-lg" href="/informe/editar">✏️ Corregir este informe</a>
+    <a class="btn btn-primary btn-lg" href="/informe?nuevo=1">📤 Enviar otro informe</a>
     <a class="btn btn-outline-secondary" href="/informe/salir">Cambiar de líder / Salir</a>
   </div>
 

@@ -45,9 +45,19 @@
 
   <div class="mb-3">
     <label class="form-label fw-bold">Fecha de la célula *</label>
-    <input class="form-control" type="date" name="fecha"
-           value="{{ c.fecha.isoformat() if c and c.fecha else fecha_hoy }}" required max="{{ fecha_hoy }}">
+    <input class="form-control" type="date" name="fecha" id="fechaInforme"
+           value="{{ c.fecha.isoformat() if c and c.fecha else fecha_hoy }}" required max="{{ fecha_hoy }}"
+           onchange="revisarFecha()">
     <div class="form-text">{{ ay('informe_express.ft.2') }}</div>
+    {% if not c %}
+    {# Aviso de fecha ya informada: solo en ALTA (al editar ya estás corrigiendo
+       ese informe, el aviso no tiene sentido). Se activa con el JS de abajo. #}
+    <div class="alert alert-warning py-2 mb-0 mt-2" id="avisoFecha" style="display:none">
+      ⚠️ <b>Ya existe un informe del <span id="avisoFechaTxt"></span> para este líder.</b>
+      Para corregirlo, vuelve a la lista y usa la ✏️ de ese informe; si guardas aquí se
+      <b>actualizará ese mismo informe</b> (no se crea otro).
+    </div>
+    {% endif %}
   </div>
 
   <div class="mb-3">
@@ -197,6 +207,22 @@
   // Timoteos del líder elegido + ayuda y datos de la célula. El texto de ayuda
   // viene del servidor (mismo texto editable que ve el líder en el exprés).
   var TIMOTEO_ACTUAL = "{{ (c.timoteo_id if c and c.timoteo_id else '') }}";
+  // Último informe del líder elegido (para avisar si la fecha elegida ya tiene
+  // informe). Se trae junto a los timoteos; null si el líder no tiene ninguno.
+  var ULTIMO_INFORME = null;
+  function revisarFecha(){
+    var aviso = document.getElementById('avisoFecha');
+    var inp = document.getElementById('fechaInforme');
+    if(!aviso || !inp) return;
+    var fecha = (ULTIMO_INFORME && ULTIMO_INFORME.fecha) || '';
+    if(fecha && inp.value === fecha){
+      document.getElementById('avisoFechaTxt').textContent =
+        fecha.split('-').reverse().join('-');
+      aviso.style.display = 'block';
+    } else {
+      aviso.style.display = 'none';
+    }
+  }
   function cargarTimoteos(esCambio){
     var sel = document.getElementById('sel_timoteo');
     var lid = document.getElementById('sel_lider').value;
@@ -206,10 +232,14 @@
     if(!lid){
       txt.innerHTML = txt.getAttribute('data-vacio') || '';
       info.style.display = 'none';
+      ULTIMO_INFORME = null;
+      revisarFecha();
       return;
     }
     fetch('/celulas-informe/timoteos/' + lid).then(function(r){ return r.json(); }).then(function(d){
       if(!d.ok) throw new Error('no-ok');
+      ULTIMO_INFORME = d.ultimo_informe || null;
+      revisarFecha();
       (d.timoteos||[]).forEach(function(t){
         var o = document.createElement('option');
         o.value = t.id; o.textContent = t.nombre;
@@ -235,7 +265,11 @@
       txt.textContent = 'No se pudo cargar la lista de timoteos.';
     });
   }
-  // Al cargar (modo edición) carga los timoteos del líder ya elegido.
-  document.addEventListener('DOMContentLoaded', cargarTimoteos);
+  // Al cargar (modo edición) carga los timoteos del líder ya elegido. OJO: no
+  // se pasa la función directa: DOMContentLoaded le entrega el objeto Event como
+  // primer argumento, que era "truthy" y hacía que se repintara la tabla con
+  // TODOS los discípulos marcados, borrando el estado real que manda el
+  // servidor al editar. El repintado solo debe ocurrir al cambiar de líder.
+  document.addEventListener('DOMContentLoaded', function(){ cargarTimoteos(false); });
 </script>
 {% endblock %}
