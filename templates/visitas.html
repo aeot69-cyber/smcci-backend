@@ -5,14 +5,39 @@
 <div class="col-12 col-sm-6 col-lg-3"><select class="form-select" name="fest" onchange="this.form.submit()"><option value="">Todos los estados</option>
 {% if estados_visita %}{% for ev in estados_visita %}<option {% if fest==ev.nombre %}selected{% endif %}>{{ev.nombre}}</option>{% endfor %}{% else %}<option {% if fest=='PENDIENTE' %}selected{% endif %}>PENDIENTE</option><option {% if fest=='EN SEGUIMIENTO' %}selected{% endif %}>EN SEGUIMIENTO</option><option {% if fest=='INTEGRADO' %}selected{% endif %}>INTEGRADO</option><option {% if fest=='NO VOLVIO' %}selected{% endif %}>NO VOLVIO</option>{% endif %}</select></div>
 <div class="col-12 col-lg-auto"><div class="d-flex flex-wrap gap-2"><button class="btn btn-primary">🔍 Consultar</button> {% if tiene_permiso('visitas','crear') %}<a class="btn btn-success" href="/visitas/nuevo">➕ Ingresar</a> <a class="btn btn-outline-primary" href="/visitas/importar">📥 Importar Excel</a>{% endif %} <a class="btn btn-outline-success" href="/visitas?export=excel&q={{texto}}&fest={{fest}}" target="_blank">Excel</a> <a class="btn btn-outline-danger" href="/visitas?export=pdf&q={{texto}}&fest={{fest}}" target="_blank">PDF</a></div></div></form>
-<div style="overflow-x:auto"><table class="table table-striped"><tr><th>Nombre</th><th>Teléfono</th><th>Sexo</th><th>E. civil</th><th>Culto</th><th>Comuna</th><th>Motivo oración</th><th>Estado</th><th>Responsable ✏️</th><th>Integrar</th><th>Acciones</th></tr>
+{% set con_acc = tiene_permiso('visitas','editar') or tiene_permiso('visitas','eliminar') %}
+<div style="overflow-x:auto"><table class="table table-striped"><tr><th>Nombre</th><th>Teléfono</th><th>Sexo</th><th>E. civil</th><th>Culto</th><th>Comuna</th><th>Motivo oración</th><th>Estado</th>{% if con_acc %}<th class="text-center">Acciones</th>{% endif %}</tr>
 {% for v in rows %}<tr><td>{{v.nombre_completo}}</td><td>{{v.telefono}}</td><td>{{v.sexo or '—'}}</td><td>{{v.estado_civil or '—'}}</td><td>{{v.culto or '—'}}</td><td>{{v.comuna or '—'}}</td><td>{{v.motivo_oracion}}</td><td><span class="badge bg-warning text-dark">{{v.estado or '—'}}</span></td>
-<td>{% if tiene_permiso('visitas','editar') %}<form method="post" action="/visitas/{{v.id}}/estado" class="d-flex gap-1">
-<select name="estado" class="form-select form-select-sm" title="Estado">{% if estados_visita %}{% for ev in estados_visita %}<option {% if v.estado==ev.nombre %}selected{% endif %}>{{ev.nombre}}</option>{% endfor %}{% else %}<option {% if v.estado=='PENDIENTE' %}selected{% endif %}>PENDIENTE</option><option {% if v.estado=='EN SEGUIMIENTO' %}selected{% endif %}>EN SEGUIMIENTO</option><option {% if v.estado=='INTEGRADO' %}selected{% endif %}>INTEGRADO</option><option {% if v.estado=='NO VOLVIO' %}selected{% endif %}>NO VOLVIO</option>{% endif %}</select>
-<select name="responsable" class="form-select form-select-sm" title="Elige líder responsable"><option value="">{{v.responsable or 'Elegir...'}}</option>{% for l in lideres %}<option>{{l.nombre_completo}}</option>{% endfor %}</select>
-<button class="btn btn-sm btn-primary">💾</button></form>{% endif %}</td>
-<td>{% if v.estado != 'INTEGRADO' and tiene_permiso('visitas','editar') %}<form method="post" action="/visitas/{{v.id}}/integrar" class="d-flex gap-1">
+{% if con_acc %}<td class="text-center text-nowrap">
+{% if tiene_permiso('visitas','editar') %}<button type="button" class="btn btn-sm btn-outline-primary" data-edit-toggle="ed{{v.id}}" title="Modificar estado / responsable / integrar">✏️</button>{% endif %}
+{% if tiene_permiso('visitas','editar') %}<a class="btn btn-sm btn-outline-secondary" href="/visitas/{{v.id}}/editar" title="Editar visita (sexo, estado civil, culto, comuna...)">📝</a>{% endif %}
+{% if tiene_permiso('visitas','eliminar') %}<form method="post" action="/visitas/{{v.id}}/eliminar" style="display:inline" data-confirm="¿Eliminar visita de {{v.nombre_completo}}?"><button class="btn btn-sm btn-outline-danger" title="Eliminar visita">🗑️</button></form>{% endif %}
+</td>{% endif %}</tr>
+{% if tiene_permiso('visitas','editar') %}
+{# Fila de edición desplegable (lo mismo que en Líderes): el estado, el
+   responsable y el integrar viven ABAJO de la fila, en una sola celda con
+   colspan. Así la fila de la visita queda de una línea en cualquier
+   dispositivo, en vez de apilar 3 controles en celdas angostas. #}
+<tr class="fila-edicion" id="ed{{v.id}}" style="display:none"><td colspan="{{9 if con_acc else 8}}">
+<div class="row g-3 align-items-end">
+<form method="post" action="/visitas/{{v.id}}/estado" class="col-12 col-lg-7">
+<div class="row g-2 align-items-end">
+<div class="col-12 col-sm-6 col-md-4"><label class="form-label small mb-1">Estado</label><select name="estado" class="form-select form-select-sm" title="Estado">{% if estados_visita %}{% for ev in estados_visita %}<option {% if v.estado==ev.nombre %}selected{% endif %}>{{ev.nombre}}</option>{% endfor %}{% else %}<option {% if v.estado=='PENDIENTE' %}selected{% endif %}>PENDIENTE</option><option {% if v.estado=='EN SEGUIMIENTO' %}selected{% endif %}>EN SEGUIMIENTO</option><option {% if v.estado=='INTEGRADO' %}selected{% endif %}>INTEGRADO</option><option {% if v.estado=='NO VOLVIO' %}selected{% endif %}>NO VOLVIO</option>{% endif %}</select></div>
+<div class="col-12 col-sm-6 col-md-5"><label class="form-label small mb-1">Responsable</label><select name="responsable" class="form-select form-select-sm" title="Elige líder responsable"><option value="">{{v.responsable or 'Elegir...'}}</option>{% for l in lideres %}<option>{{l.nombre_completo}}</option>{% endfor %}</select></div>
+<div class="col-auto"><button class="btn btn-sm btn-primary" title="Guardar estado y responsable">💾 Guardar</button></div>
+</div></form>
+{% if v.estado != 'INTEGRADO' %}
+<form method="post" action="/visitas/{{v.id}}/integrar" class="col-12 col-lg-5">
+<label class="form-label small mb-1">Integrar a una célula</label>
+<div class="d-flex gap-2 align-items-end">
 <select name="lider" class="form-select form-select-sm" required title="Célula destino">{% for l in lideres %}<option value="{{l.id}}">{{l.nombre_completo}}</option>{% endfor %}</select>
-<button class="btn btn-sm btn-success" title="Crea hermano con código automático + asigna célula">➡️ Integrar</button></form>{% else %}✅ Integrado{% endif %}</td>
-<td>{% if tiene_permiso('visitas','editar') %}<a class="btn btn-sm btn-outline-primary" href="/visitas/{{v.id}}/editar" title="Editar visita (sexo, estado civil, culto, comuna...)">✏️</a> {% endif %}{% if tiene_permiso('visitas','eliminar') %}<form method="post" action="/visitas/{{v.id}}/eliminar" style="display:inline" data-confirm="¿Eliminar visita de {{v.nombre_completo}}?"><button class="btn btn-sm btn-outline-danger">🗑️</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan=11>Sin visitas.</td></tr>{% endfor %}</table></div>
+<button class="btn btn-sm btn-success text-nowrap" title="Crea hermano con código automático + asigna célula">➡️ Integrar</button>
+</div></form>
+{% else %}
+<div class="col-12 col-lg-5"><span class="badge bg-success">✅ Integrado</span></div>
+{% endif %}
+</div>
+</td></tr>
+{% endif %}
+{% else %}<tr><td colspan="{{9 if con_acc else 8}}">Sin visitas.</td></tr>{% endfor %}</table></div>
 <p class="text-muted small">Mostrando {{rows|length}} visitas.</p></div>{% endblock %}
