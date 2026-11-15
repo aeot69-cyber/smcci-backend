@@ -1,10 +1,10 @@
 {% extends "base.html" %}{% block b %}
 {# Formulario interno de informe: MISMO formulario que el informe exprés que
    cargan los líderes (mismos campos, orden, textos y ayudas). La única
-   diferencia es el selector de líder, que en el exprés lo da el código; los
-   datos de la célula (pastor, género, dirección y horario) salen solos
-   del líder, igual que en el exprés. La ubicación (región → provincia →
-   comuna) se precarga del líder y se puede corregir aquí. #}
+   diferencia es el selector de líder, que en el exprés lo da el código; el
+   pastor y el género/red salen solos del líder, igual que en el exprés. La
+   ubicación (región → provincia → comuna), la dirección y el horario se
+   precargan con lo último que ese líder informó y se pueden corregir. #}
 <div class="card p-4" style="max-width:800px">
 <h4>{{'✏️ Editar' if c else '➕ Nuevo'}} Informe de Célula</h4>
 
@@ -31,6 +31,24 @@
     <small class="text-muted d-block mb-2">Región, provincia y comuna donde se reúne la célula. Se precarga con la última ubicación informada; puedes corregirla.</small>
     <div class="row g-3">
       {% include "_comuna_picker.html" %}
+    </div>
+  </div>
+
+  {# ========= DIRECCIÓN Y HORARIO DE LA CÉLULA ========= #}
+  <div class="row g-3 mb-3">
+    <div class="col-12 col-sm-7">
+      <label class="form-label fw-bold" for="direccion">Dirección de la célula</label>
+      <input class="form-control" id="direccion" name="direccion" maxlength="200"
+             placeholder="Ej: Av. Siemers 1234, casa 12"
+             value="{{ (c.direccion or '') if c else '' }}">
+      <div class="form-text">Calle y número donde se reúne. Opcional.</div>
+    </div>
+    <div class="col-12 col-sm-5">
+      <label class="form-label fw-bold" for="horario">Horario</label>
+      <input class="form-control" id="horario" name="horario" maxlength="120"
+             placeholder="Ej: Viernes 20:30"
+             value="{{ (c.horario or '') if c else '' }}">
+      <div class="form-text">Día y hora en que se reúne (opcional).</div>
     </div>
   </div>
 
@@ -259,6 +277,15 @@
         info.style.display = 'block';
         if (esCambio && window.ComunaPicker) {
           window.ComunaPicker.set(d.lider.comuna_id || 0);
+        }
+        // Dirección y horario: al cambiar de líder se recargan con lo último
+        // que ese líder informó (al abrir el formulario no se tocan, para
+        // conservar lo que trae el informe que se está editando).
+        if (esCambio) {
+          var inpDir = document.getElementById('direccion');
+          var inpHor = document.getElementById('horario');
+          if (inpDir) inpDir.value = d.lider.direccion || '';
+          if (inpHor) inpHor.value = d.lider.horario || '';
         }
       }
     }).catch(function(){

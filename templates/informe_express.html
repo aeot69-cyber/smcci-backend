@@ -72,6 +72,24 @@
         </div>
       </div>
 
+      {# ========= DIRECCIÓN Y HORARIO DE LA CÉLULA ========= #}
+      <div class="row g-3 mb-3">
+        <div class="col-12 col-sm-7">
+          <label class="form-label fw-bold" for="direccion">Dirección de la célula</label>
+          <input class="form-control" id="direccion" name="direccion" maxlength="200"
+                 placeholder="Ej: Av. Siemers 1234, casa 12"
+                 value="{{ (borrador.direccion if borrador and borrador.direccion else '') or (lider.direccion_celula or '') }}">
+          <div class="form-text">Calle y número donde se reúne. Opcional: viene precargada con tu última dirección informada.</div>
+        </div>
+        <div class="col-12 col-sm-5">
+          <label class="form-label fw-bold" for="horario">Horario</label>
+          <input class="form-control" id="horario" name="horario" maxlength="120"
+                 placeholder="Ej: Viernes 20:30"
+                 value="{{ (borrador.horario if borrador and borrador.horario else '') or (lider.horario or '') }}">
+          <div class="form-text">Día y hora en que se reúne (opcional).</div>
+        </div>
+      </div>
+
       {# ========= TIMOTEO (sub-líder / discípulo a cargo) ========= #}
       <div class="mb-3">
         <label class="form-label fw-bold">¿Quién es tu timoteo?</label>

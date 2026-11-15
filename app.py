@@ -3208,7 +3208,35 @@ def _borrador_informe(f):
         "tipo_ofrenda": f.get("tipo_ofrenda") or "",
         "modalidad": f.get("modalidad") or "",
         "comuna_id": (f.get("comuna_id") or "").strip(),
+        "direccion": (f.get("direccion") or "").strip(),
+        "horario": (f.get("horario") or "").strip(),
     }
+
+
+def _leer_dir_horario(f):
+    """Dirección y horario de la célula escritos en el formulario (opcionales).
+    Se guardan en una sola línea y recortados al largo de la columna; si el
+    campo queda vacío se guarda NULL, sin bloquear el envío del informe."""
+    d = " ".join((f.get("direccion") or "").split())[:200]
+    h = " ".join((f.get("horario") or "").split())[:120]
+    return d or None, h or None
+
+
+def _ultima_dir_horario(lid):
+    """Última dirección y horario NO vacíos que ese líder informó en sus
+    informes de célula: es lo que se precarga en el formulario (queda en
+    blanco si aún no escribió ninguno). El domicilio del líder NO se usa,
+    porque casi nunca está cargado y no es donde se reúne la célula."""
+    if not lid:
+        return "", ""
+    u = q("""SELECT (SELECT direccion FROM celulas_informe
+                     WHERE lider_id=%s AND btrim(COALESCE(direccion,''))<>''
+                     ORDER BY created_at DESC LIMIT 1) AS direccion,
+                   (SELECT horario FROM celulas_informe
+                     WHERE lider_id=%s AND btrim(COALESCE(horario,''))<>''
+                     ORDER BY created_at DESC LIMIT 1) AS horario""",
+          (lid, lid), one=True) or {}
+    return (u.get("direccion") or "").strip(), (u.get("horario") or "").strip()
 
 
 # ---------- INFORME CÉLULA ----------
@@ -3280,14 +3308,16 @@ def celulas_informe_crear():
     if not cd:
         flash("Selecciona la región, provincia y comuna donde se reúne la célula.", "error")
         return redirect(url_for("celulas_informe_nuevo"))
-    # Pastor, género, dirección y horario salen del líder (igual que en el
-    # informe exprés); el mes se calcula solo desde la fecha. La ubicación sí
-    # se guarda tal como se eligió en la cascada (con su región y provincia).
+    # Pastor y género/red salen del líder (igual que en el informe exprés) y
+    # el mes se calcula solo desde la fecha. Dirección y horario son los que
+    # se escriben en el formulario (opcionales); la ubicación se guarda tal
+    # como se eligió en la cascada (con su región y provincia).
     d = datos_celula_lider(lid)
     if not d:
         flash("No se encontró el líder elegido.", "error")
         return redirect(url_for("celulas_informe_nuevo"))
     cigl = iglesia_de("lideres", lid) or session.get("iglesia_id") or 1
+    dir_cel, hor_cel = _leer_dir_horario(f)
     # Casillas por discípulo: las filas van a la tabla y los dos textos
     # (que siguen consumiendo reportes/Excel/PDF) se arman desde ellas.
     filas, txt_si, txt_no = _leer_asistencia(f, lid)
@@ -3302,8 +3332,8 @@ def celulas_informe_crear():
                  VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                  RETURNING id""",
                 (lid, d["pastor_id"], fecha_sel, MESES_ES[fecha_sel.month], d["red"],
-                 d["direccion"], cd["nombre"], cd["region_id"], cd["provincia_id"], cd["id"],
-                 d["horario"],
+                 dir_cel, cd["nombre"], cd["region_id"], cd["provincia_id"], cd["id"],
+                 hor_cel,
                  f.get("realizo") == "1", (f.get("justificacion") or "").strip(),
                  txt_si, txt_no,
                  f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
@@ -3339,6 +3369,12 @@ def celulas_informe_editar(cid):
     # tabla, se reconstruyen desde los dos textos antiguos casillando por nombre.
     discipulos = _discipulos_lider(c.get("lider_id"))
     casillas, otros_si, otros_no = _asistencia_editable(c)
+    # Dirección y horario: el de este informe; si está vacío, la última que
+    # informó el líder (así se van completando los informes antiguos).
+    if not (c.get("direccion") or "").strip() or not (c.get("horario") or "").strip():
+        u_dir, u_hor = _ultima_dir_horario(c.get("lider_id"))
+        c["direccion"] = (c.get("direccion") or "").strip() or u_dir
+        c["horario"] = (c.get("horario") or "").strip() or u_hor
     return render_template("celulas_informe_form.html", c=c, lideres=lideres,
                            modalidades=modalidades,
                            fecha_hoy=hoy_chile().isoformat(),
@@ -3365,19 +3401,18 @@ def celulas_informe_update(cid):
     if not cd:
         flash("Selecciona la región, provincia y comuna donde se reúne la célula.", "error")
         return redirect(url_for("celulas_informe_editar", cid=cid))
-    # Los datos de la célula (pastor, género, dirección y horario) se
-    # conservan como están; solo se recalculan si cambia el líder del informe.
-    # La ubicación es la que se eligió en la cascada.
+    # Pastor y género/red: se conservan como están si no cambia el líder del
+    # informe; solo se recalculan si se elige otro. La dirección y el horario
+    # son los que vienen del formulario (opcionales, como en el exprés).
+    dir_cel, hor_cel = _leer_dir_horario(f)
     if str(c.get("lider_id") or "") == str(lid):
         pastor_id, red = c.get("pastor_id"), c.get("red")
-        direccion, horario = c.get("direccion"), c.get("horario")
     else:
         d = datos_celula_lider(lid)
         if not d:
             flash("No se encontró el líder elegido.", "error")
             return redirect(url_for("celulas_informe_editar", cid=cid))
         pastor_id, red = d["pastor_id"], d["red"]
-        direccion, horario = d["direccion"], d["horario"]
     # Casillas por discípulo: las filas van a la tabla y los dos textos
     # (que siguen consumiendo reportes/Excel/PDF) se arman desde ellas.
     filas, txt_si, txt_no = _leer_asistencia(f, lid)
@@ -3389,9 +3424,9 @@ def celulas_informe_update(cid):
              discipulos_no_asistieron=%s, ofrenda=%s, tipo_ofrenda=%s, modalidad=%s,
              timoteo_id=%s
            WHERE id=%s""",
-          (lid, pastor_id, fecha_sel, MESES_ES[fecha_sel.month], red, direccion,
+          (lid, pastor_id, fecha_sel, MESES_ES[fecha_sel.month], red, dir_cel,
            cd["nombre"], cd["region_id"], cd["provincia_id"], cd["id"],
-           horario, f.get("realizo") == "1", (f.get("justificacion") or "").strip(),
+           hor_cel, f.get("realizo") == "1", (f.get("justificacion") or "").strip(),
            txt_si, txt_no, f.get("ofrenda") or "0",
            f.get("tipo_ofrenda"), f.get("modalidad"), timoteo_id, cid), commit=True)
         _guardar_asistencia(cid, filas)
@@ -3446,6 +3481,7 @@ def celulas_informe_timoteos(lid):
                    ultimo_informe=({"id": ult["id"], "fecha": ult_fecha} if ult else None),
                    lider=({"nombre": d["nombre_completo"], "red": d["red"] or "",
                            "pastor": d["pastor"] or "", "direccion": d["direccion"] or "",
+                           "horario": d["horario"] or "",
                            "comuna": d["comuna"] or "", "provincia": d["provincia"] or "",
                            "region": d["region"] or "",
                            "comuna_id": d["comuna_id"] or 0} if d else None))
@@ -3548,23 +3584,24 @@ def datos_celula_lider(lid):
     """Datos de la célula que el informe exprés toma SOLOS del líder (pastor,
     género/red, dirección, ubicación y horario). La ubicación es la última
     informada por el líder (o, si aún no hay, la comuna de su domicilio); el
-    formulario la muestra en cascada y permite corregirla. El formulario
-    interno de informe hace lo mismo, para que lo que registra un admin sea
-    idéntico a lo que carga el líder. El pastor es el REAL (sube la cadena de
+    formulario la muestra en cascada y permite corregirla. La dirección y el
+    horario son los últimos que el líder escribió donde se reúne la célula
+    (nunca su domicilio) y también se pueden corregir. El formulario interno
+    de informe hace lo mismo, para que lo que registra un admin sea idéntico
+    a lo que carga el líder. El pastor es el REAL (sube la cadena de
     líderes)."""
-    d = q("""SELECT l.id, l.red, h.nombre_completo, h.direccion,
+    d = q("""SELECT l.id, l.red, h.nombre_completo,
                     COALESCE(
                         (SELECT ci.comuna_id FROM celulas_informe ci
                           WHERE ci.lider_id=l.id AND ci.comuna_id IS NOT NULL
                           ORDER BY ci.created_at DESC LIMIT 1),
-                        h.comuna_id) AS comuna_id,
-                    (SELECT ci.horario FROM celulas_informe ci
-                     WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS horario
+                        h.comuna_id) AS comuna_id
              FROM lideres l
              JOIN hermanos h ON h.id=l.hermano_id
              WHERE l.id=%s AND l.activo""", (lid,), one=True)
     if not d:
         return None
+    d["direccion"], d["horario"] = _ultima_dir_horario(lid)
     d["comuna"] = ""
     d["provincia"] = ""
     d["region"] = ""
@@ -3793,6 +3830,14 @@ def _borrador_desde_informe(c):
     casillas, otros_si, otros_no = _asistencia_editable(c)
     fecha = c.get("fecha")
     ofrenda = c.get("ofrenda")
+    # Dirección y horario: el de este informe; si está vacío, la última que
+    # informó el líder (para no abrir el formulario en blanco).
+    dir_cel = (c.get("direccion") or "").strip()
+    hor_cel = (c.get("horario") or "").strip()
+    if not dir_cel or not hor_cel:
+        u_dir, u_hor = _ultima_dir_horario(c.get("lider_id"))
+        dir_cel = dir_cel or u_dir
+        hor_cel = hor_cel or u_hor
     return {
         "fecha": fecha.isoformat() if hasattr(fecha, "isoformat") else str(fecha or ""),
         "timoteo": str(c.get("timoteo_id") or ""),
@@ -3805,6 +3850,8 @@ def _borrador_desde_informe(c):
         "tipo_ofrenda": c.get("tipo_ofrenda") or "",
         "modalidad": c.get("modalidad") or "",
         "comuna_id": str(c.get("comuna_id") or ""),
+        "direccion": dir_cel,
+        "horario": hor_cel,
     }
 
 
@@ -3837,8 +3884,6 @@ def _mostrar_formulario_informe(borrador=None, editar=False):
                              WHERE ci.lider_id=l.id AND ci.comuna_id IS NOT NULL
                              ORDER BY ci.created_at DESC LIMIT 1),
                            c.nombre) AS comuna,
-                       (SELECT ci.horario FROM celulas_informe ci
-                        WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS horario,
                        (SELECT ci.modalidad FROM celulas_informe ci
                         WHERE ci.lider_id=l.id ORDER BY ci.created_at DESC LIMIT 1) AS modalidad
                 FROM lideres l
@@ -3854,6 +3899,11 @@ def _mostrar_formulario_informe(borrador=None, editar=False):
         session.pop("informe_lider_nombre", None)
         flash("Sesión expirada. Ingrese su código nuevamente.", "error")
         return redirect(url_for("informe_express"))
+
+    # Dirección y horario donde se reúne la célula: los últimos que este líder
+    # informó (se precargan para corregirlos; en blanco si aún no escribió
+    # ninguno). `lider.direccion` (el domicilio) sigue solo para el saludo.
+    lider["direccion_celula"], lider["horario"] = _ultima_dir_horario(lid)
 
     # Coherencia de sesión: el líder tiene que seguir siendo el de la iglesia que se
     # registró al validar el código (si cambió de iglesia o la sesión se alteró, se
@@ -4042,6 +4092,11 @@ def informe_guardar():
         return redirect(url_for("informe_express"))
     ldata["pastor_id"] = pastor_de_lider(lid)
 
+    # Dirección y horario donde se reúne la célula: los que escribió el líder
+    # en este envío (opcionales). Antes se rellenaban solos con el domicilio
+    # del líder y por eso la columna quedaba siempre vacía.
+    dir_cel, hor_cel = _leer_dir_horario(f)
+
     # Casillas por discípulo: las filas van a la tabla y los dos textos
     # (que siguen consumiendo reportes/Excel/PDF/estadísticas) se arman
     # desde ellas, para que no cambie nada de lo que ya está en producción.
@@ -4057,9 +4112,9 @@ def informe_guardar():
                      discipulos_no_asistieron=%s, ofrenda=%s, tipo_ofrenda=%s, modalidad=%s,
                      timoteo_id=%s
                  WHERE id=%s""",
-                (ldata["pastor_id"], mes_sel, ldata["red"], ldata["direccion"],
+                (ldata["pastor_id"], mes_sel, ldata["red"], dir_cel,
                  cd["nombre"], cd["region_id"], cd["provincia_id"], cd["id"],
-                 ldata["horario"], realizo, justificacion,
+                 hor_cel, realizo, justificacion,
                  txt_si, txt_no,
                  f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
                  timoteo_id, informe_id), commit=True)
@@ -4074,8 +4129,8 @@ def informe_guardar():
                      VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                      RETURNING id""",
                     (lid, ldata["pastor_id"], fecha_sel, mes_sel,
-                     ldata["red"], ldata["direccion"], cd["nombre"],
-                     cd["region_id"], cd["provincia_id"], cd["id"], ldata["horario"],
+                     ldata["red"], dir_cel, cd["nombre"],
+                     cd["region_id"], cd["provincia_id"], cd["id"], hor_cel,
                      realizo, justificacion, txt_si, txt_no,
                      f.get("ofrenda") or "0", f.get("tipo_ofrenda"), f.get("modalidad"),
                      timoteo_id, ldata["iglesia_id"] or 1))
