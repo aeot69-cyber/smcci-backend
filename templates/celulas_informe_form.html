@@ -36,19 +36,24 @@
 
   {# ========= DIRECCIÓN Y HORARIO DE LA CÉLULA ========= #}
   <div class="row g-3 mb-3">
-    <div class="col-12 col-sm-7">
+    <div class="col-12 col-sm-6">
       <label class="form-label fw-bold" for="direccion">Dirección de la célula</label>
       <input class="form-control" id="direccion" name="direccion" maxlength="200"
              placeholder="Ej: Av. Siemers 1234, casa 12"
              value="{{ (c.direccion or '') if c else '' }}">
       <div class="form-text">Calle y número donde se reúne. Opcional.</div>
     </div>
-    <div class="col-12 col-sm-5">
-      <label class="form-label fw-bold" for="horario">Horario</label>
-      <input class="form-control" id="horario" name="horario" maxlength="120"
-             placeholder="Ej: Viernes 20:30"
-             value="{{ (c.horario or '') if c else '' }}">
-      <div class="form-text">Día y hora en que se reúne (opcional).</div>
+    <div class="col-6 col-sm-3">
+      <label class="form-label fw-bold" for="horario_dia">Día</label>
+      <select class="form-select" id="horario_dia" name="horario_dia">
+        <option value="">--</option>
+        {% for d in dias_semana %}<option value="{{ d }}"{{ ' selected' if horario_dia == d else '' }}>{{ d|capitalize }}</option>{% endfor %}
+      </select>
+      <div class="form-text">Opcional.</div>
+    </div>
+    <div class="col-6 col-sm-3">
+      <label class="form-label fw-bold" for="horario">Hora</label>
+      <input class="form-control" type="time" id="horario" name="horario" value="{{ horario_hora }}">
     </div>
   </div>
 
@@ -222,6 +227,20 @@
     if(ids) ids.value = partes.join(',');
   }
 
+  // Horario guardado como "VIERNES 20:30" -> [día, hora] para precargar el
+  // desplegable de día y el campo de hora. Igual que _partes_horario() del
+  // backend.
+  function partesHorario(h){
+    var t = String(h || '').trim().split(/\s+/);
+    var dias = ['LUNES','MARTES','MIERCOLES','JUEVES','VIERNES','SABADO','DOMINGO'];
+    var dia = (t[0] && dias.indexOf(t[0].toUpperCase()) >= 0) ? t[0].toUpperCase() : '';
+    var hora = '';
+    for (var i = (dia ? 1 : 0); i < t.length; i++) {
+      if (/^([01]?\d|2[0-3]):[0-5]\d$/.test(t[i])) { hora = t[i]; break; }
+    }
+    return [dia, hora];
+  }
+
   // Timoteos del líder elegido + ayuda y datos de la célula. El texto de ayuda
   // viene del servidor (mismo texto editable que ve el líder en el exprés).
   var TIMOTEO_ACTUAL = "{{ (c.timoteo_id if c and c.timoteo_id else '') }}";
@@ -280,12 +299,16 @@
         }
         // Dirección y horario: al cambiar de líder se recargan con lo último
         // que ese líder informó (al abrir el formulario no se tocan, para
-        // conservar lo que trae el informe que se está editando).
+        // conservar lo que trae el informe que se está editando). El horario
+        // llega como "VIERNES 20:30" y se parte en día y hora.
         if (esCambio) {
           var inpDir = document.getElementById('direccion');
-          var inpHor = document.getElementById('horario');
           if (inpDir) inpDir.value = d.lider.direccion || '';
-          if (inpHor) inpHor.value = d.lider.horario || '';
+          var partes = partesHorario(d.lider.horario || '');
+          var selDia = document.getElementById('horario_dia');
+          var inpHor = document.getElementById('horario');
+          if (selDia) selDia.value = partes[0];
+          if (inpHor) inpHor.value = partes[1];
         }
       }
     }).catch(function(){

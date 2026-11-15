@@ -26,7 +26,7 @@
 <td>{{c.pastor_nombre or '—'}}</td>
 <td>{{c.fecha}}</td><td>{{c.mes}}</td>
 <td><span class="badge bg-primary">{{c.red}}</span></td>
-<td><small>{% if c.direccion %}<b>{{c.direccion}}</b><br>{% endif %}{% if c.horario %}<span class="text-muted">🕐 {{c.horario}}</span><br>{% endif %}{{c.comuna_nombre or '—'}}{% if c.provincia_nombre %}<br><span class="text-muted">{{c.provincia_nombre}}{% if c.region_nombre %} · {{c.region_nombre}}{% endif %}</span>{% endif %}</small></td>
+<td><small>{% if c.direccion %}<b>{{c.direccion}}</b><br>{% endif %}{% if c.horario %}<span class="text-muted">🕐 {{c.horario|capitalize}}</span><br>{% endif %}{{c.comuna_nombre or '—'}}{% if c.provincia_nombre %}<br><span class="text-muted">{{c.provincia_nombre}}{% if c.region_nombre %} · {{c.region_nombre}}{% endif %}</span>{% endif %}</small></td>
 <td>{% if c.realizo %}<span class="badge bg-success">SI</span>{% else %}<span class="badge bg-danger">NO</span>{% endif %}</td>
 <td>${{c.ofrenda or 0}}</td>
 <td><a class="btn btn-sm btn-outline-primary" href="/celulas-informe/{{c.id}}/editar">✏️</a>

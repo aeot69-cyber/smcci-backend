@@ -3196,6 +3196,7 @@ def _casillas_borrador(f):
 def _borrador_informe(f):
     """Estado del formulario para recordarlo si el guardado falla."""
     casillas, otros_si, otros_no = _casillas_borrador(f)
+    dir_cel, hor_cel = _leer_dir_horario(f)
     return {
         "fecha": f.get("fecha", ""),
         "timoteo": (f.get("timoteo") or "").strip(),
@@ -3208,18 +3209,46 @@ def _borrador_informe(f):
         "tipo_ofrenda": f.get("tipo_ofrenda") or "",
         "modalidad": f.get("modalidad") or "",
         "comuna_id": (f.get("comuna_id") or "").strip(),
-        "direccion": (f.get("direccion") or "").strip(),
-        "horario": (f.get("horario") or "").strip(),
+        "direccion": dir_cel or "",
+        "horario": hor_cel or "",
     }
+
+
+# Días en que puede reunirse la célula: se eligen en un desplegable y se
+# guardan junto a la hora en la columna horario, como "VIERNES 20:30".
+DIAS_SEMANA = ("LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO")
+_DIAS_SET = set(DIAS_SEMANA)
+_RE_HORA = re.compile(r"([01]?\d|2[0-3]):[0-5]\d\Z")
 
 
 def _leer_dir_horario(f):
     """Dirección y horario de la célula escritos en el formulario (opcionales).
-    Se guardan en una sola línea y recortados al largo de la columna; si el
-    campo queda vacío se guarda NULL, sin bloquear el envío del informe."""
+    El horario llega en dos controles —día de la semana (desplegable) y hora
+    (type=time)— y se guarda en una sola línea, "VIERNES 20:30". Si ambos
+    quedan vacíos se guarda NULL, sin bloquear el envío del informe."""
     d = " ".join((f.get("direccion") or "").split())[:200]
-    h = " ".join((f.get("horario") or "").split())[:120]
+    dia = (f.get("horario_dia") or "").strip().upper()
+    if dia not in _DIAS_SET:
+        dia = ""
+    hora = (f.get("horario") or "").strip()
+    if not _RE_HORA.match(hora):
+        hora = ""          # el navegador ya lo valida; esto es por si acaso
+    h = (dia + " " + hora).strip()[:120]
     return d or None, h or None
+
+
+def _partes_horario(h):
+    """Divide el horario guardado ("VIERNES 20:30") en (día, hora) para
+    precargar los dos controles del formulario. ("", "") si está vacío o no
+    se reconoce (p. ej. un horario viejo escrito a mano)."""
+    t = (h or "").split()
+    dia = t[0].upper() if t and t[0].upper() in _DIAS_SET else ""
+    hora = ""
+    for p in (t[1:] if dia else t):
+        if _RE_HORA.match(p):
+            hora = p
+            break
+    return dia, hora
 
 
 def _ultima_dir_horario(lid):
@@ -3294,6 +3323,8 @@ def celulas_informe_nuevo():
                            ayuda_timoteo=ayuda_timoteo(None),
                            discipulos=[], casillas={}, otros_si="", otros_no="",
                            arbol=_arbol_comunas(), sel_comuna=None,
+                           dias_semana=DIAS_SEMANA,
+                           horario_dia="", horario_hora="",
                            campo="comuna_id", requerido=True)
 
 @app.post("/celulas-informe/nuevo")
@@ -3375,6 +3406,9 @@ def celulas_informe_editar(cid):
         u_dir, u_hor = _ultima_dir_horario(c.get("lider_id"))
         c["direccion"] = (c.get("direccion") or "").strip() or u_dir
         c["horario"] = (c.get("horario") or "").strip() or u_hor
+    # El horario se guarda como "VIERNES 20:30"; se parte para precargar el
+    # desplegable de día y el campo de hora.
+    horario_dia, horario_hora = _partes_horario(c.get("horario"))
     return render_template("celulas_informe_form.html", c=c, lideres=lideres,
                            modalidades=modalidades,
                            fecha_hoy=hoy_chile().isoformat(),
@@ -3382,6 +3416,8 @@ def celulas_informe_editar(cid):
                            discipulos=discipulos, casillas=casillas,
                            otros_si=otros_si, otros_no=otros_no,
                            arbol=_arbol_comunas(),
+                           dias_semana=DIAS_SEMANA,
+                           horario_dia=horario_dia, horario_hora=horario_hora,
                            sel_comuna=c.get("comuna_id") or _comuna_lider(c.get("lider_id")),
                            campo="comuna_id", requerido=True)
 
@@ -3951,6 +3987,12 @@ def _mostrar_formulario_informe(borrador=None, editar=False):
     n_informes = q("SELECT COUNT(*) AS c FROM celulas_informe WHERE lider_id=%s",
                   (lid,), one=True)["c"] or 0
     pregunta = nuevo_captcha("captcha_informe2")
+    # Dirección y horario para precargar los controles: manda el borrador (un
+    # envío fallido o "Editar mi último informe"); si no, lo último que
+    # informó el líder. El horario guardado se parte en día y hora.
+    dir_valor = (borrador or {}).get("direccion") or (lider.get("direccion_celula") or "")
+    horario_dia, horario_hora = _partes_horario(
+        (borrador or {}).get("horario") or (lider.get("horario") or ""))
     return render_template("informe_express.html",
                            lider=lider,
                            existente=None,
@@ -3967,6 +4009,9 @@ def _mostrar_formulario_informe(borrador=None, editar=False):
                            modalidades=get_catalogo("catalogo_modalidad_celula", iglesia=lider["iglesia_id"] or 1),
                            iglesia_nombre=lider["iglesia_nombre"],
                            arbol=_arbol_comunas(), sel_comuna=sel_comuna,
+                           dias_semana=DIAS_SEMANA,
+                           direccion_valor=dir_valor,
+                           horario_dia=horario_dia, horario_hora=horario_hora,
                            campo="comuna_id", requerido=True,
                            ubicacion=comuna_de_id(sel_comuna))
 
