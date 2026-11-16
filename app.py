@@ -66,7 +66,7 @@ DOMINIO_OFICIAL = os.environ.get("DOMINIO_OFICIAL", "smcci.iglesiamcci.cl").stri
 
 @app.before_request
 def _redirigir_dominio_oficial():
-    if request.method not in ("GET", "HEAD") or request.path.startswith("/api/"):
+    if request.method not in ("GET", "HEAD") or request.path.startswith("/api/") or request.path in ("/monitor", "/health"):
         return None
     host = (request.host or "").split(":")[0].strip().lower()
     if host and host not in (DOMINIO_OFICIAL, "localhost", "127.0.0.1"):
@@ -956,6 +956,28 @@ def _iniciar_sesion(row, username, fuente):
         session.pop("ver_todo", None)
     q("UPDATE usuarios SET ultimo_login=now() WHERE id=%s", (row["id"],), commit=True)
     log_audit("LOGIN", "usuarios", f"login {username} ({fuente})")
+
+# ---------- MONITOR / HEALTH CHECK ----------
+@app.get("/monitor")
+@app.get("/health")
+def monitor():
+    """Health check rápido para Render, UptimeRobot o monitoreo de Supabase."""
+    t0 = time.time()
+    try:
+        r = q("SELECT 1 AS ok", one=True)
+        if r and r.get("ok") == 1:
+            ms = round((time.time() - t0) * 1000)
+            resp = jsonify({"status": "ok", "db": "ok", "db_ms": ms})
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return resp, 200
+        resp = jsonify({"status": "error", "db": "sin_respuesta"})
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp, 503
+    except Exception:
+        resp = jsonify({"status": "error", "db": "down"})
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp, 503
+
 
 @app.get("/login")
 def login():
